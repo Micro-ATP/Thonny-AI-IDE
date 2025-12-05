@@ -17,7 +17,7 @@ _Example: “This project aims to develop a web-based tool for….”_
 ---
 
 ## 👥 Team Members
-- Ting Wang
+- Ting Wang(
 - Siyuan Xu
 - Manshu Li
 - Yanxi Lu
