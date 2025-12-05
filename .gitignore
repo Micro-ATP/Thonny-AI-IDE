@@ -57,7 +57,6 @@ packaging/linux/repo
 thonny.egg-info
 temp_build_dir
 thonnyapp/thonnyapp.egg-info
-thonnycontrib
 node
 node.exe
 .python-version

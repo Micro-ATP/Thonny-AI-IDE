@@ -1,0 +1,4 @@
+AI Completion Assistant Plugin
+Version: 0.1.0
+Description: Demo plugin for AI-assisted code completion.
+Author: Your Team
