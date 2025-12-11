@@ -20,7 +20,7 @@ _Example: “This project aims to develop a web-based tool for….”_
 - Ting Wang(14553505)
 - Siyuan Xu
 - Manshu Li(14564040)
-- Yanxi Lu
+- Yanxi Lu（14548947）
 - Jin Qiao(14564464)
 
 ---
