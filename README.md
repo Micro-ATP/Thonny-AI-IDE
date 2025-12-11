@@ -18,7 +18,7 @@ _Example: “This project aims to develop a web-based tool for….”_
 
 ## 👥 Team Members
 - Ting Wang(14553505)
-- Siyuan Xu
+- Siyuan Xu(14564132)
 - Manshu Li(14564040)
 - Yanxi Lu（14548947）
 - Jin Qiao(14564464)
