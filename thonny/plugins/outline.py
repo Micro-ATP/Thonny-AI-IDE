@@ -78,10 +78,14 @@ class OutlineView(ttk.Frame):
         # ignore the pending results for last request
         ls_proxy.unbind_request_handler(self._handle_document_symbols_response)
 
-        ls_proxy.request_document_symbol(
-            DocumentSymbolParams(textDocument=TextDocumentIdentifier(uri=current_editor.get_uri())),
-            self._handle_document_symbols_response,
-        )
+        try:
+            ls_proxy.request_document_symbol(
+                DocumentSymbolParams(textDocument=TextDocumentIdentifier(uri=current_editor.get_uri())),
+                self._handle_document_symbols_response,
+            )
+        except RuntimeError:
+            # Server has been closed, ignore silently
+            pass
 
     def _handle_document_symbols_response(
         self,

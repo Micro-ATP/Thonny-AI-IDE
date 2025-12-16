@@ -80,10 +80,14 @@ class OccurrencesHighlighter:
         if uri is None:
             return
 
-        ls_proxy.request_document_highlight(
-            DocumentHighlightParams(textDocument=TextDocumentIdentifier(uri=uri), position=pos),
-            self._handle_response,
-        )
+        try:
+            ls_proxy.request_document_highlight(
+                DocumentHighlightParams(textDocument=TextDocumentIdentifier(uri=uri), position=pos),
+                self._handle_response,
+            )
+        except RuntimeError:
+            # Server has been closed, ignore silently
+            pass
 
     def _handle_response(
         self, response: LspResponse[Union[List[lsp_types.DocumentHighlight], None]]

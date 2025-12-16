@@ -317,7 +317,11 @@ class CompletionsBox(EditorInfoBox):
         if ls_proxy is not None:
             # TODO: cancel previous request
             ls_proxy.unbind_request_handler(self._handle_details_response)
-            ls_proxy.request_resolve_completion_item(completion, self._handle_details_response)
+            try:
+                ls_proxy.request_resolve_completion_item(completion, self._handle_details_response)
+            except RuntimeError:
+                # Server has been closed, ignore silently
+                pass
 
         self._show_next_to_completions()
 
@@ -511,10 +515,14 @@ class Completer:
             return
 
         self._last_request_text = text
-        ls_proxy.request_completion(
-            CompletionParams(textDocument=TextDocumentIdentifier(uri=uri), position=position),
-            self._handle_completions_response,
-        )
+        try:
+            ls_proxy.request_completion(
+                CompletionParams(textDocument=TextDocumentIdentifier(uri=uri), position=position),
+                self._handle_completions_response,
+            )
+        except RuntimeError:
+            # Server has been closed, ignore silently
+            pass
 
     def _handle_completions_response(
         self,

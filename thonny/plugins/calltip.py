@@ -156,14 +156,18 @@ class Calltipper:
             return
 
         self._last_request_text = text
-        ls_proxy.request_signature_help(
-            SignatureHelpParams(
-                textDocument=TextDocumentIdentifier(uri), position=position, context=None
-            ),
-            self.handle_response,
-        )
-        self._last_request_uri = uri
-        self._last_request_position = position
+        try:
+            ls_proxy.request_signature_help(
+                SignatureHelpParams(
+                    textDocument=TextDocumentIdentifier(uri), position=position, context=None
+                ),
+                self.handle_response,
+            )
+            self._last_request_uri = uri
+            self._last_request_position = position
+        except RuntimeError:
+            # Server has been closed, ignore silently
+            pass
 
     def handle_response(self, response: LspResponse[Optional[SignatureHelp]]) -> None:
         if not self._last_request_text:

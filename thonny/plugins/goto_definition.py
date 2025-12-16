@@ -47,10 +47,14 @@ class GotoHandler:
 
         ls_proxy.unbind_request_handler(self.handle_definitions_response)
 
-        ls_proxy.request_definition(
-            DefinitionParams(TextDocumentIdentifier(uri=uri), position=pos),
-            self.handle_definitions_response,
-        )
+        try:
+            ls_proxy.request_definition(
+                DefinitionParams(TextDocumentIdentifier(uri=uri), position=pos),
+                self.handle_definitions_response,
+            )
+        except RuntimeError:
+            # Server has been closed, ignore silently
+            pass
 
     def proper_modifier_is_pressed(self, event: tk.Event) -> bool:
         if running_on_mac_os():
