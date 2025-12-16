@@ -365,12 +365,50 @@ def trigger_ai_completion(event=None):
     return "break"
 
 
+# ==================== 打开文件夹功能 ====================
+def open_folder(event=None):
+    """打开文件夹（类似 VSCode）"""
+    from tkinter import filedialog
+    
+    folder = filedialog.askdirectory(title="选择项目文件夹")
+    if not folder:
+        return
+    
+    wb = get_workbench()
+    
+    # 1. 显示文件浏览器
+    try:
+        wb.show_view("FilesView")
+    except:
+        pass
+    
+    # 2. 导航到选择的文件夹
+    try:
+        # 获取文件浏览器并设置路径
+        files_view = wb.get_view("FilesView")
+        if files_view and hasattr(files_view, 'local_files'):
+            files_view.local_files.focus_into(folder)
+    except Exception as e:
+        logger.debug(f"Navigate error: {e}")
+    
+    # 3. 更改工作目录
+    try:
+        os.chdir(folder)
+        logger.info(f"📂 Working directory: {folder}")
+    except:
+        pass
+    
+    # 4. 显示提示
+    showinfo("打开文件夹", f"已打开项目文件夹:\n{folder}\n\n工作目录已切换。")
+
+
 # ==================== 插件加载 ====================
 def load_plugin():
     """加载插件"""
     wb = get_workbench()
     logger.info("🚀 Loading AI Completion plugin...")
     
+    # AI 补全命令
     wb.add_command(
         command_id="ai_completion.trigger",
         menu_name="tools",
@@ -379,6 +417,17 @@ def load_plugin():
         default_sequence="<Control-Alt-a>",
         accelerator="Ctrl+Alt+A",
         group=100
+    )
+    
+    # 打开文件夹命令（类似 VSCode）
+    wb.add_command(
+        command_id="open_folder",
+        menu_name="file",
+        command_label="打开文件夹...",
+        handler=open_folder,
+        default_sequence="<Control-Shift-o>",
+        accelerator="Ctrl+Shift+O",
+        group=5  # 放在 File 菜单前面
     )
     
     if HAS_SETTINGS:
@@ -401,7 +450,8 @@ def load_plugin():
     wb.after(1000, on_editor_change)
     
     logger.info(f"📦 AI Client: {HAS_AI_CLIENT}")
-    logger.info("✅ Loaded! Ctrl+Alt+A / Tab / Esc")
+    logger.info("📂 Open Folder: Ctrl+Shift+O")
+    logger.info("✅ Loaded!")
 
 
 if __name__ == "__main__":
