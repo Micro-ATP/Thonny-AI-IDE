@@ -1,410 +1,408 @@
+"""
+AI Code Completion Plugin - Copilot Style
+真正的 AI 自动补全：
+- Ghost Text 灰色建议
+- Tab 接受
+- Esc 取消
+- 自动触发
+"""
 from thonny import get_workbench
 from tkinter.messagebox import showinfo
+import tkinter as tk
 import os
+import time
+import threading
 from logging import getLogger
 
 logger = getLogger(__name__)
 
-# 尝试导入设置模块
+# ==================== 模块导入 ====================
 try:
     from . import settings
     HAS_SETTINGS = True
-    logger.info("Settings module found")
-except ImportError as e:
+except ImportError:
     HAS_SETTINGS = False
-    logger.warning(f"Settings module not found: {e}")
 
-# 尝试导入AI客户端（使用相对导入）
 try:
     from .ai_client import AIClient
     HAS_AI_CLIENT = True
-    logger.info("AI client module found")
 except ImportError as e:
     HAS_AI_CLIENT = False
-    logger.warning(f"AI client module not found: {e}")
+    logger.warning(f"AI client not found: {e}")
+
+try:
+    from .ai_config import get_config, is_ai_enabled
+    HAS_CONFIG = True
+except ImportError:
+    HAS_CONFIG = False
+    def is_ai_enabled(): return True
+    def get_config(): return None
+
+try:
+    from .completion_handler import get_smart_context
+    HAS_COMPLETION_HANDLER = True
+except ImportError:
+    HAS_COMPLETION_HANDLER = False
 
 
+# ==================== 配置 ====================
+AUTO_TRIGGER_ENABLED = True
+AUTO_TRIGGER_DELAY_MS = 600
+MIN_PREFIX_LENGTH = 4
+
+
+# ==================== Ghost Text 实现 ====================
+class GhostText:
+    """简单可靠的 Ghost Text 实现"""
+    
+    def __init__(self, text_widget: tk.Text):
+        self.widget = text_widget
+        self.active = False
+        self.suggestion = ""
+        self.start_idx = None
+        
+        # 配置样式
+        self.widget.tag_configure("ghost", foreground="#888888")
+        
+        # 绑定事件（不使用 add=True，直接绑定）
+        self._bind_tab()
+        self.widget.bind("<Escape>", self._on_escape, add=True)
+        self.widget.bind("<Key>", self._on_key, add=True)
+    
+    def _bind_tab(self):
+        """特殊处理 Tab 绑定"""
+        # 保存原始 Tab 处理器
+        self._orig_tab = self.widget.bind("<Tab>")
+        # 替换为我们的处理器
+        self.widget.bind("<Tab>", self._on_tab)
+    
+    def _on_tab(self, event):
+        """Tab 键处理"""
+        if self.active and self.widget.tag_ranges("ghost"):
+            # 有 ghost text，接受它
+            self._accept()
+            return "break"
+        # 没有 ghost text，插入正常的 Tab（4个空格或制表符）
+        self.widget.insert("insert", "    ")
+        return "break"
+    
+    def _on_escape(self, event):
+        """Esc 键处理"""
+        if self.active or self.widget.tag_ranges("ghost"):
+            self._clear()
+            return "break"
+        return None
+    
+    def _on_key(self, event):
+        """其他按键处理"""
+        # 忽略修饰键
+        if event.keysym in ('Tab', 'Escape', 'Shift_L', 'Shift_R',
+                           'Control_L', 'Control_R', 'Alt_L', 'Alt_R'):
+            return None
+        
+        # 如果有 ghost text 且用户输入了字符，清除
+        if (self.active or self.widget.tag_ranges("ghost")):
+            if event.char and event.char.isprintable():
+                self._clear()
+        return None
+    
+    def show(self, text: str) -> bool:
+        """显示 ghost text"""
+        self._clear()
+        
+        if not text or not text.strip():
+            return False
+        
+        try:
+            self.start_idx = self.widget.index("insert")
+            self.suggestion = text
+            
+            # 插入灰色文本
+            self.widget.insert("insert", text, ("ghost",))
+            
+            # 光标移回起始位置
+            self.widget.mark_set("insert", self.start_idx)
+            
+            self.active = True
+            logger.info(f"👻 Shown: {text[:30]}...")
+            return True
+        except Exception as e:
+            logger.error(f"Show error: {e}")
+            self._clear()
+            return False
+    
+    def _accept(self):
+        """接受 ghost text"""
+        if not self.active:
+            return
+        
+        try:
+            # 移除灰色标签（文本保留）
+            self.widget.tag_remove("ghost", "1.0", "end")
+            
+            # 移动光标到末尾
+            end_idx = self.widget.index(f"{self.start_idx}+{len(self.suggestion)}c")
+            self.widget.mark_set("insert", end_idx)
+            
+            logger.info(f"✅ Accepted")
+        except Exception as e:
+            logger.error(f"Accept error: {e}")
+        
+        self._reset()
+    
+    def _clear(self):
+        """清除 ghost text"""
+        try:
+            # 删除所有 ghost 标签的文本
+            while True:
+                ranges = self.widget.tag_ranges("ghost")
+                if not ranges:
+                    break
+                self.widget.delete(ranges[0], ranges[1])
+        except:
+            pass
+        self._reset()
+    
+    def _reset(self):
+        """重置状态"""
+        self.active = False
+        self.suggestion = ""
+        self.start_idx = None
+
+
+# ==================== 全局管理 ====================
+_ghost_texts = {}  # widget_id -> GhostText
+_is_requesting = False
+_request_lock = threading.Lock()
+_last_trigger = 0
+_auto_timer = None
+_setup_done = set()
+
+
+def get_ghost(widget) -> GhostText:
+    """获取/创建 GhostText"""
+    wid = id(widget)
+    if wid not in _ghost_texts:
+        _ghost_texts[wid] = GhostText(widget)
+    return _ghost_texts[wid]
+
+
+def setup_widget(widget):
+    """为 widget 设置自动触发"""
+    global _setup_done
+    wid = id(widget)
+    if wid in _setup_done:
+        return
+    
+    # 确保有 GhostText
+    get_ghost(widget)
+    
+    # 绑定自动触发
+    widget.bind("<KeyRelease>", lambda e: _on_key_release(e, widget), add=True)
+    _setup_done.add(wid)
+
+
+def _on_key_release(event, widget):
+    """按键释放时检查是否触发"""
+    global _auto_timer
+    
+    if not AUTO_TRIGGER_ENABLED:
+        return
+    
+    # 忽略特殊键
+    if event.keysym in ('Tab', 'Escape', 'Return', 'BackSpace', 'Delete',
+                       'Up', 'Down', 'Left', 'Right',
+                       'Shift_L', 'Shift_R', 'Control_L', 'Control_R'):
+        return
+    
+    # 如果已有建议，不触发
+    ghost = _ghost_texts.get(id(widget))
+    if ghost and ghost.active:
+        return
+    
+    # 取消之前的定时器
+    if _auto_timer:
+        try:
+            widget.after_cancel(_auto_timer)
+        except:
+            pass
+    
+    # 检查是否应该触发
+    if _should_trigger(widget):
+        _auto_timer = widget.after(AUTO_TRIGGER_DELAY_MS, lambda: do_completion(widget))
+
+
+def _should_trigger(widget) -> bool:
+    """判断是否应该触发"""
+    try:
+        line = widget.get("insert linestart", "insert").strip()
+        if len(line) < MIN_PREFIX_LENGTH:
+            return False
+        
+        triggers = ['def ', 'class ', 'for ', 'while ', 'if ', 'elif ',
+                   'with ', 'try:', 'import ', 'from ', 'return ', 'async ']
+        for t in triggers:
+            if line.startswith(t):
+                return True
+        return False
+    except:
+        return False
+
+
+def do_completion(widget, manual=False):
+    """执行补全"""
+    global _is_requesting
+    
+    with _request_lock:
+        if _is_requesting:
+            return
+        _is_requesting = True
+    
+    try:
+        # 获取上下文
+        if HAS_COMPLETION_HANDLER:
+            ctx = get_smart_context(widget)
+            prefix = ctx.get("prefix", "")
+            suffix = ctx.get("suffix", "")
+        else:
+            prefix = widget.get("1.0", "insert")
+            suffix = widget.get("insert", "end-1c")
+        
+        if len(prefix.strip()) < MIN_PREFIX_LENGTH:
+            with _request_lock:
+                _is_requesting = False
+            return
+        
+        if not HAS_AI_CLIENT:
+            with _request_lock:
+                _is_requesting = False
+            return
+        
+        client = AIClient()
+        context = {
+            "text": prefix + suffix,
+            "prefix": prefix,
+            "suffix": suffix,
+            "language": "python",
+            "filename": "code.py",
+            "mode": "completion"
+        }
+        
+        # 后台请求
+        def request():
+            try:
+                result = client.request(context)
+                widget.after(0, lambda: _handle_result(result, widget))
+            except Exception as e:
+                logger.error(f"Request error: {e}")
+            finally:
+                global _is_requesting
+                with _request_lock:
+                    _is_requesting = False
+        
+        thread = threading.Thread(target=request, daemon=True)
+        thread.start()
+        
+    except Exception as e:
+        logger.error(f"Completion error: {e}")
+        with _request_lock:
+            _is_requesting = False
+
+
+def _handle_result(result: dict, widget):
+    """处理结果"""
+    if not result.get("success"):
+        logger.warning(f"AI error: {result.get('message')}")
+        return
+    
+    suggestion = result.get("data", {}).get("raw_analysis", "")
+    if not suggestion or not suggestion.strip():
+        return
+    
+    ghost = get_ghost(widget)
+    if ghost.show(suggestion):
+        logger.info("💡 Tab=接受, Esc=取消")
+
+
+# ==================== 命令处理 ====================
 def trigger_ai_completion(event=None):
-    """
-    触发 AI Completion 功能。
-    event 参数是为了快捷键绑定时传入。
-    """
+    """手动触发 (Ctrl+Alt+A)"""
+    global _last_trigger
+    
+    if HAS_CONFIG and not is_ai_enabled():
+        showinfo("AI Completion", "AI Assistant is disabled.")
+        return "break"
+    
+    # 防抖
+    now = time.time() * 1000
+    if now - _last_trigger < 500:
+        return "break"
+    _last_trigger = now
+    
     try:
         wb = get_workbench()
-
-        # 检查工作台是否已初始化
-        if wb is None:
-            showinfo("AI Completion", "Thonny is not ready yet. Please wait for Thonny to fully load.")
-            return
-
-        # 检查AI客户端是否可用
-        if not HAS_AI_CLIENT:
-            showinfo("AI Completion Error",
-                    "The AI client module failed to load!\nPlease check if the ai_client.py file exists.")
-            return
-
-        try:
-            # 尝试获取编辑器笔记本（可能在初始化之前调用）
-            editor_notebook = wb.get_editor_notebook()
-            editor = editor_notebook.get_current_editor()
-
-            if not editor:
-                showinfo("AI Completion", "No active editor! Please open a file first.")
-                return
-
-            # 获取文本组件
-            text_widget = editor.get_text_widget()
-
-            # 获取完整代码
-            full_code = text_widget.get("1.0", "end-1c")
-
-            # 获取选中的代码（如果有）
-            try:
-                if text_widget.tag_ranges("sel"):
-                    selected_code = text_widget.get("sel.first", "sel.last")
-                else:
-                    selected_code = ""
-            except Exception:
-                selected_code = ""
-
-            # 获取当前文件名
-            current_file = editor.get_filename()
-            if current_file:
-                filename = os.path.basename(current_file)
-                # 根据扩展名判断语言
-                if filename.endswith('.py'):
-                    language = 'python'
-                elif filename.endswith('.js'):
-                    language = 'javascript'
-                elif filename.endswith('.html'):
-                    language = 'html'
-                elif filename.endswith('.css'):
-                    language = 'css'
-                elif filename.endswith('.java'):
-                    language = 'java'
-                else:
-                    language = 'text'
-            else:
-                filename = "Untitled.py"
-                language = 'python'
-
-            # 创建AI客户端实例（会自动从设置加载配置）
-            ai_client = AIClient()
-
-            # 准备上下文数据
-            context = {
-                "text": full_code,
-                "selection": selected_code,
-                "language": language,
-                "filename": filename
-            }
-
-            # 显示分析开始消息
-            showinfo("AI Analysis", "Starting code analysis...\nPlease wait...")
-
-            # 调用AI分析
-            result = ai_client.request(context)
-
-            if result.get("success"):
-                # 显示AI分析结果
-                raw_analysis = result["data"]["raw_analysis"]
-
-                # 创建结果显示窗口
-                from tkinter import Toplevel, Text, Scrollbar, Frame, Button, Label
-                from tkinter import VERTICAL, HORIZONTAL, BOTH, END, LEFT, RIGHT, TOP
-
-                # 创建新窗口显示结果
-                result_window = Toplevel()
-                result_window.title(f"AI Code Analysis Results - {filename}")
-                result_window.geometry("800x600")
-
-                # 添加键盘快捷键支持
-                def on_accept_key(event=None):
-                    accept_suggestion()
-                    return "break"
-
-                def on_refuse_key(event=None):
-                    refuse_suggestion()
-                    return "break"
-
-                def on_close_key(event=None):
-                    close_window()
-                    return "break"
-
-                # 绑定快捷键
-                result_window.bind("<Alt-a>", on_accept_key)  # Alt+A 接受
-                result_window.bind("<Alt-r>", on_refuse_key)  # Alt+R 拒绝
-                result_window.bind("<Escape>", on_close_key)  # Esc 关闭
-
-                # 创建顶部提示区域
-                tip_frame = Frame(result_window, bg="#F0F8FF", height=40)
-                tip_frame.pack(fill="x", padx=10, pady=(10, 0))
-                tip_frame.pack_propagate(False)  # 保持固定高度
-
-                tip_label = Label(
-                    tip_frame,
-                    text="快捷键: Alt+A=接受建议 | Alt+R=拒绝建议 | Esc=关闭窗口",
-                    bg="#F0F8FF",
-                    fg="#2E7D32",
-                    font=("Arial", 10)
-                )
-                tip_label.pack(expand=True)
-
-                # 创建文本框显示分析结果
-                text_frame = Frame(result_window)
-                text_frame.pack(fill=BOTH, expand=True, padx=10, pady=10)
-
-                # 添加垂直滚动条
-                scrollbar_y = Scrollbar(text_frame)
-                scrollbar_y.pack(side="right", fill="y")
-
-                # 添加水平滚动条
-                scrollbar_x = Scrollbar(text_frame, orient=HORIZONTAL)
-                scrollbar_x.pack(side="bottom", fill="x")
-
-                # 创建文本显示区域
-                result_text = Text(
-                    text_frame,
-                    wrap="word",
-                    yscrollcommand=scrollbar_y.set,
-                    xscrollcommand=scrollbar_x.set,
-                    font=("Courier New", 10)  # 使用等宽字体
-                )
-                result_text.pack(fill=BOTH, expand=True)
-
-                # 配置滚动条
-                scrollbar_y.config(command=result_text.yview)
-                scrollbar_x.config(command=result_text.xview)
-
-                # 插入分析结果
-                result_text.insert(END, "=" * 60 + "\n")
-                result_text.insert(END, "AI Code Analysis Report\n")
-                result_text.insert(END, "=" * 60 + "\n\n")
-
-                # 插入元数据
-                metadata = result["data"]["metadata"]
-                result_text.insert(END, f"Filename: {metadata.get('filename', 'N/A')}\n")
-                result_text.insert(END, f"Language: {metadata.get('language', 'N/A')}\n")
-                result_text.insert(END, f"Code length: {metadata.get('code_length', 0)} characters\n")
-                result_text.insert(END, f"Analysis time: {result.get('timestamp', 'N/A')}\n\n")
-                result_text.insert(END, "=" * 60 + "\n\n")
-
-                # 插入AI分析内容
-                result_text.insert(END, raw_analysis)
-
-                # 设置为只读
-                result_text.config(state="disabled")
-
-                # 创建按钮框架
-                button_frame = Frame(result_window)
-                button_frame.pack(pady=(0, 10))
-
-                def accept_suggestion():
-                    """接受建议按钮的回调函数"""
-                    try:
-                        # 获取当前编辑器
-                        text_widget = editor.get_text_widget()
-
-                        # 获取当前光标位置
-                        cursor_pos = text_widget.index("insert")
-
-                        # 插入AI分析结果
-                        text_widget.insert(cursor_pos, raw_analysis)
-
-                        # 显示成功消息
-                        showinfo("AI 建议",
-                                 f"建议已插入到编辑器中！\n\n"
-                                 f"插入位置: {cursor_pos}\n"
-                                 f"插入长度: {len(raw_analysis)} 字符",
-                                 parent=result_window)
-
-                        # 记录到日志
-                        logger.info(f"AI suggestion accepted and inserted at {cursor_pos}")
-
-                    except Exception as e:
-                        showinfo("错误", f"插入建议时出错: {str(e)}", parent=result_window)
-                        logger.error(f"Failed to insert suggestion: {e}")
-                    finally:
-                        # 关闭结果窗口
-                        result_window.destroy()
-
-                def refuse_suggestion():
-                    """拒绝建议按钮的回调函数"""
-                    # 询问确认
-                    from tkinter import messagebox
-                    confirm = messagebox.askyesno(
-                        "确认拒绝",
-                        "确定要拒绝这个AI建议吗？\n\n"
-                        "拒绝后将无法恢复。",
-                        parent=result_window
-                    )
-
-                    if confirm:
-                        # 显示拒绝消息
-                        showinfo("AI 建议", "建议已被拒绝。", parent=result_window)
-
-                        # 记录到日志
-                        logger.info("AI suggestion rejected by user")
-
-                        # 关闭结果窗口
-                        result_window.destroy()
-
-                def close_window():
-                    """关闭窗口按钮的回调函数"""
-                    result_window.destroy()
-
-                # 添加接受按钮
-                accept_button = Button(
-                    button_frame,
-                    text="✓ Accept (Alt+A)",
-                    command=accept_suggestion,
-                    width=18,
-                    height=2,
-                    bg="#4CAF50",  # 绿色背景
-                    fg="white",  # 白色文字
-                    font=("Arial", 10, "bold"),
-                    relief="raised",
-                    cursor="hand2"
-                )
-                accept_button.pack(side=LEFT, padx=10)
-
-                # 添加拒绝按钮
-                refuse_button = Button(
-                    button_frame,
-                    text="✗ Refuse (Alt+R)",
-                    command=refuse_suggestion,
-                    width=18,
-                    height=2,
-                    bg="#f44336",  # 红色背景
-                    fg="white",  # 白色文字
-                    font=("Arial", 10, "bold"),
-                    relief="raised",
-                    cursor="hand2"
-                )
-                refuse_button.pack(side=LEFT, padx=10)
-
-                # 添加关闭按钮
-                close_button = Button(
-                    button_frame,
-                    text="× Close (Esc)",
-                    command=close_window,
-                    width=18,
-                    height=2,
-                    bg="#2196F3",  # 蓝色背景
-                    fg="white",  # 白色文字
-                    font=("Arial", 10, "bold"),
-                    relief="raised",
-                    cursor="hand2"
-                )
-                close_button.pack(side=LEFT, padx=10)
-
-                # 设置窗口焦点
-                result_window.focus_set()
-
-                # 居中显示窗口
-                result_window.update_idletasks()
-                width = result_window.winfo_width()
-                height = result_window.winfo_height()
-                x = (result_window.winfo_screenwidth() // 2) - (width // 2)
-                y = (result_window.winfo_screenheight() // 2) - (height // 2)
-                result_window.geometry(f'{width}x{height}+{x}+{y}')
-
-                logger.info("AI analysis complete, result window displayed.")
-
-            else:
-                showinfo("AI Analysis Error",
-                        f"Analysis failed: {result.get('message', 'Unknown error')}")
-
-        except AssertionError:
-            # 编辑器笔记本还未初始化
-            showinfo("AI Completion", "Editor not ready yet. Please wait for Thonny to fully load.")
-        except AttributeError as e:
-            # 编辑器笔记本不存在或属性不存在
-            logger.error(f"Editor attribute error: {e}")
-            showinfo("AI Completion", f"Editor not available: {str(e)}")
-        except RuntimeError as e:
-            # 捕获语言服务器相关的错误
-            error_msg = str(e)
-            if "not initialized" in error_msg.lower() or "hasn't been initialized" in error_msg.lower():
-                logger.warning(f"Language server not initialized: {e}")
-                showinfo(
-                    "AI Completion",
-                    "Language server not ready yet.\nPlease wait for Thonny to fully load."
-                )
-            else:
-                logger.error(f"Runtime error: {error_msg}")
-                showinfo("AI Completion", f"Runtime error: {error_msg}")
-        except Exception as e:
-            # 其他错误
-            import traceback
-            error_details = traceback.format_exc()
-            logger.error(f"Error in trigger_ai_completion: {error_details}")
-            showinfo("AI Completion Error",
-                    f"An error occurred during AI analysis:\n{str(e)}\n\nSee frontend.log for details.")
-
+        if not wb:
+            return "break"
+        
+        editor = wb.get_editor_notebook().get_current_editor()
+        if not editor:
+            showinfo("AI Completion", "请先打开一个文件！")
+            return "break"
+        
+        widget = editor.get_text_widget()
+        setup_widget(widget)
+        
+        # 清除现有建议
+        ghost = get_ghost(widget)
+        ghost._clear()
+        
+        # 执行补全
+        do_completion(widget, manual=True)
+        
     except Exception as e:
-        # 最外层错误处理（例如 get_workbench 本身失败）
-        logger.error(f"Failed to initialize AI completion: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        showinfo("AI Completion", f"Failed to initialize: {str(e)}")
+        logger.error(f"Trigger error: {e}")
+    
+    return "break"
 
 
+# ==================== 插件加载 ====================
 def load_plugin():
     """加载插件"""
     wb = get_workbench()
-    logger.info("Loading AI Completion plugin...")
-
-    # 注册菜单命令（显示在 Tools 菜单下）
-    # 使用 default_sequence 参数自动绑定快捷键
+    logger.info("🚀 Loading AI Completion plugin...")
+    
     wb.add_command(
         command_id="ai_completion.trigger",
         menu_name="tools",
-        command_label="AI Completion",
+        command_label="AI Code Completion",
         handler=trigger_ai_completion,
-        default_sequence="<Control-Alt-a>",  # 快捷键绑定
-        accelerator="Ctrl-Alt-A",  # 菜单显示快捷键
+        default_sequence="<Control-Alt-a>",
+        accelerator="Ctrl+Alt+A",
         group=100
     )
-
-    # 注册设置菜单
-    try:
-        if HAS_SETTINGS:
-            # 导入settings模块中的register_menu_items函数
+    
+    if HAS_SETTINGS:
+        try:
             from .settings import register_menu_items
-
-            # 调用函数注册设置菜单
-            success = register_menu_items(wb)
-
-            if success:
-                logger.info("✅ Settings menu items registered successfully")
-            else:
-                logger.warning("⚠️ Settings menu registration returned False")
-        else:
-            logger.warning("⚠️ Settings module not available - skipping menu registration")
-
-    except ImportError as e:
-        logger.error(f"❌ Could not import settings module: {e}")
-    except Exception as e:
-        logger.error(f"❌ Error registering settings menu: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-
-    # 检查AI客户端状态
-    if not HAS_AI_CLIENT:
-        logger.warning("AI Completion plugin loaded but ai_client module not found!")
-        wb.add_command(
-            command_id="ai_completion.error",
-            menu_name="tools",
-            command_label="AI Completion (Module missing)",
-            handler=lambda: showinfo("Error",
-                    "AI client module not found!\nPlease ensure that ai_client.py is in the ai_completion directory."),
-            group=100
-        )
-    else:
-        logger.info("AI Completion plugin loaded successfully!")
+            register_menu_items(wb)
+        except Exception as e:
+            logger.error(f"Settings error: {e}")
+    
+    # 监听编辑器切换
+    def on_editor_change(event=None):
+        try:
+            editor = wb.get_editor_notebook().get_current_editor()
+            if editor:
+                setup_widget(editor.get_text_widget())
+        except:
+            pass
+    
+    wb.bind("<<NotebookTabChanged>>", on_editor_change, add=True)
+    wb.after(1000, on_editor_change)
+    
+    logger.info(f"📦 AI Client: {HAS_AI_CLIENT}")
+    logger.info("✅ Loaded! Ctrl+Alt+A / Tab / Esc")
 
 
 if __name__ == "__main__":
-    # 用于测试
-    logger.info("AI Completion plugin module loaded")
+    print("AI Completion Plugin")

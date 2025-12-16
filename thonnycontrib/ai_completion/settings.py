@@ -240,6 +240,54 @@ def open_settings_dialog():
         notebook = ttk.Notebook(main_frame)
         notebook.pack(fill=tk.BOTH, expand=True)
 
+        # Tab 0: General Settings (新增)
+        general_tab = ttk.Frame(notebook, padding="10")
+        notebook.add(general_tab, text="General")
+        
+        # 启用/禁用开关
+        enabled_var = tk.BooleanVar(value=settings_manager.config.is_enabled() if settings_manager.config else True)
+        enabled_check = ttk.Checkbutton(
+            general_tab, 
+            text="Enable AI Code Assistant",
+            variable=enabled_var
+        )
+        enabled_check.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+        
+        # 显示通知开关
+        notify_var = tk.BooleanVar(value=True)
+        notify_check = ttk.Checkbutton(
+            general_tab,
+            text="Show notifications",
+            variable=notify_var
+        )
+        notify_check.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+        
+        # 上下文设置
+        ttk.Label(general_tab, text="Context Settings:", font=("TkDefaultFont", 10, "bold")).grid(
+            row=2, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+        
+        context_config = settings_manager.config.get_context_config() if settings_manager.config else {}
+        
+        ttk.Label(general_tab, text="Lines before cursor:").grid(row=3, column=0, sticky=tk.W, pady=2)
+        lines_before_var = tk.StringVar(value=str(context_config.get("lines_before", 50)))
+        lines_before_entry = ttk.Entry(general_tab, width=10, textvariable=lines_before_var)
+        lines_before_entry.grid(row=3, column=1, sticky=tk.W, pady=2, padx=(10, 0))
+        
+        ttk.Label(general_tab, text="Lines after cursor:").grid(row=4, column=0, sticky=tk.W, pady=2)
+        lines_after_var = tk.StringVar(value=str(context_config.get("lines_after", 10)))
+        lines_after_entry = ttk.Entry(general_tab, width=10, textvariable=lines_after_var)
+        lines_after_entry.grid(row=4, column=1, sticky=tk.W, pady=2, padx=(10, 0))
+        
+        ttk.Label(general_tab, text="Max context chars:").grid(row=5, column=0, sticky=tk.W, pady=2)
+        max_chars_var = tk.StringVar(value=str(context_config.get("max_chars", 4000)))
+        max_chars_entry = ttk.Entry(general_tab, width=10, textvariable=max_chars_var)
+        max_chars_entry.grid(row=5, column=1, sticky=tk.W, pady=2, padx=(10, 0))
+        
+        # 说明文字
+        ttk.Label(general_tab, 
+                  text="💡 Tip: Smaller context = faster responses, larger context = better understanding",
+                  foreground="gray").grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
+
         # Tab 1: API Settings
         api_tab = ttk.Frame(notebook, padding="10")
         notebook.add(api_tab, text="API Settings")
@@ -301,7 +349,20 @@ def open_settings_dialog():
         def save_settings():
             """Save settings manually"""
             try:
-                # Get user input
+                # Get user input - General settings
+                is_enabled = enabled_var.get()
+                show_notify = notify_var.get()
+                
+                # Context settings
+                try:
+                    lines_before = int(lines_before_var.get())
+                    lines_after = int(lines_after_var.get())
+                    max_chars = int(max_chars_var.get())
+                except ValueError:
+                    messagebox.showwarning("Input Error", "Context settings must be numbers")
+                    return
+                
+                # Get user input - API settings
                 api_key = api_key_entry.get().strip()
                 endpoint = endpoint_entry.get().strip()
                 model = model_entry.get().strip()
@@ -321,15 +382,26 @@ def open_settings_dialog():
                 confirm = messagebox.askyesno(
                     "Confirm Save",
                     f"Do you want to save these settings?\n\n"
+                    f"AI Assistant: {'Enabled' if is_enabled else 'Disabled'}\n"
                     f"Team: {settings_manager.team_config['team_name']}\n"
                     f"Endpoint: {endpoint}\n"
-                    f"Model: {model}\n\n"
+                    f"Model: {model}\n"
+                    f"Context: {lines_before} lines before, {lines_after} lines after\n\n"
                     f"Configuration will be saved to:\n"
                     f"{settings_manager.config.config_file if settings_manager.config else 'configuration file'}"
                 )
 
                 if not confirm:
                     return
+
+                # Save general settings
+                if settings_manager.config:
+                    settings_manager.config.set_enabled(is_enabled)
+                    settings_manager.config.set_context_config(
+                        lines_before=lines_before,
+                        lines_after=lines_after,
+                        max_chars=max_chars
+                    )
 
                 # Save API settings
                 success, message = settings_manager.save_api_settings(api_key, endpoint, model)
