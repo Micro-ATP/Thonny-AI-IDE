@@ -7,3 +7,16 @@ packaging>=23.0
 
 # wheel is required by pipkin, which is currently vendored
 wheel>=0.38.4
+
+# grpcio and protobuf are required by codeium plugin
+grpcio>=1.66.2
+protobuf>=5.29.5
+
+# ruff is required by ruff language server
+ruff>=0.1.0
+# --------------------------
+# New
+# --------------------------
+requests>=2.31.0
+PyYAML>=6.0.1
+

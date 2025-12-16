@@ -48,9 +48,12 @@ classifiers = [
 dependencies = [
     "asttokens>=2.2.1",
     "docutils>=0.19",
+    "grpcio>=1.66.2",
     "mypy>=1.0.1",
     "packaging>=23.0",
+    "protobuf>=5.29.5",
     "pylint>=2.16.2",
+    "ruff>=0.1.0",
     "Send2Trash>=1.8.0",
     "wheel>=0.38.4",
 ]
