@@ -140,11 +140,24 @@ class GhostText:
             # 移除灰色标签（文本保留）
             self.widget.tag_remove("ghost", "1.0", "end")
             
-            # 移动光标到末尾
-            end_idx = self.widget.index(f"{self.start_idx}+{len(self.suggestion)}c")
-            self.widget.mark_set("insert", end_idx)
+            # 找到 ghost text 的实际结束位置
+            # 使用 search 而不是字符计数，避免多字节字符问题
+            try:
+                # 获取当前 ghost text 的结束位置
+                ghost_end = self.widget.search(
+                    "", self.start_idx, stopindex="end", 
+                    regexp=False, nocase=False
+                )
+                if not ghost_end:
+                    # 如果找不到，计算位置
+                    ghost_end = self.widget.index(f"{self.start_idx}+{len(self.suggestion)}c")
+            except Exception:
+                ghost_end = self.widget.index(f"{self.start_idx}+{len(self.suggestion)}c")
             
-            logger.info(f"✅ Accepted")
+            # 移动光标到末尾
+            self.widget.mark_set("insert", ghost_end if ghost_end else "insert")
+            
+            logger.info("✅ Accepted")
         except Exception as e:
             logger.error(f"Accept error: {e}")
         
@@ -159,8 +172,11 @@ class GhostText:
                 if not ranges:
                     break
                 self.widget.delete(ranges[0], ranges[1])
-        except:
+        except tk.TclError:
+            # widget 可能已被销毁
             pass
+        except Exception as e:
+            logger.debug(f"Clear error (ignored): {e}")
         self._reset()
     
     def _reset(self):
@@ -177,14 +193,34 @@ _request_lock = threading.Lock()
 _last_trigger = 0
 _auto_timer = None
 _setup_done = set()
+import weakref
+_widget_refs = {}  # widget_id -> weakref
 
 
 def get_ghost(widget) -> GhostText:
     """获取/创建 GhostText"""
     wid = id(widget)
+    
+    # 清理已销毁的 widget
+    _cleanup_dead_widgets()
+    
     if wid not in _ghost_texts:
         _ghost_texts[wid] = GhostText(widget)
+        _widget_refs[wid] = weakref.ref(widget)
     return _ghost_texts[wid]
+
+
+def _cleanup_dead_widgets():
+    """清理已销毁的 widget 引用，防止内存泄漏"""
+    dead_ids = []
+    for wid, ref in _widget_refs.items():
+        if ref() is None:  # widget 已被销毁
+            dead_ids.append(wid)
+    
+    for wid in dead_ids:
+        _ghost_texts.pop(wid, None)
+        _widget_refs.pop(wid, None)
+        _setup_done.discard(wid)
 
 
 def setup_widget(widget):
@@ -199,7 +235,17 @@ def setup_widget(widget):
     
     # 绑定自动触发
     widget.bind("<KeyRelease>", lambda e: _on_key_release(e, widget), add=True)
+    
+    # 绑定销毁事件以清理资源
+    widget.bind("<Destroy>", lambda e: _on_widget_destroy(wid), add=True)
     _setup_done.add(wid)
+
+
+def _on_widget_destroy(wid):
+    """widget 销毁时清理资源"""
+    _ghost_texts.pop(wid, None)
+    _widget_refs.pop(wid, None)
+    _setup_done.discard(wid)
 
 
 def _on_key_release(event, widget):
@@ -224,7 +270,7 @@ def _on_key_release(event, widget):
     if _auto_timer:
         try:
             widget.after_cancel(_auto_timer)
-        except:
+        except (tk.TclError, ValueError):
             pass
     
     # 检查是否应该触发
@@ -245,7 +291,10 @@ def _should_trigger(widget) -> bool:
             if line.startswith(t):
                 return True
         return False
-    except:
+    except tk.TclError:
+        return False
+    except Exception as e:
+        logger.debug(f"Trigger check error: {e}")
         return False
 
 
@@ -379,8 +428,8 @@ def open_folder(event=None):
     # 1. 显示文件浏览器
     try:
         wb.show_view("FilesView")
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"Show FilesView error: {e}")
     
     # 2. 导航到选择的文件夹
     try:
@@ -395,8 +444,8 @@ def open_folder(event=None):
     try:
         os.chdir(folder)
         logger.info(f"📂 Working directory: {folder}")
-    except:
-        pass
+    except OSError as e:
+        logger.warning(f"Failed to change working directory: {e}")
     
     # 4. 显示提示
     showinfo("打开文件夹", f"已打开项目文件夹:\n{folder}\n\n工作目录已切换。")
@@ -443,8 +492,10 @@ def load_plugin():
             editor = wb.get_editor_notebook().get_current_editor()
             if editor:
                 setup_widget(editor.get_text_widget())
-        except:
-            pass
+        except AttributeError:
+            pass  # 编辑器可能尚未初始化
+        except Exception as e:
+            logger.debug(f"Editor change error: {e}")
     
     wb.bind("<<NotebookTabChanged>>", on_editor_change, add=True)
     wb.after(1000, on_editor_change)

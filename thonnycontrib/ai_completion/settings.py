@@ -102,9 +102,9 @@ class AISettingsManager:
     def load_api_settings(self):
         """Load API settings"""
         if not self.config:
-            # Return team default configuration
+            # Return default configuration without API key
             return {
-                "api_key": "sk-bGP2YS9G4hoLVeazqFm5wd1fRLgGKpZkmaTUO8bUKVre7MMi",
+                "api_key": "",  # 需要用户配置
                 "endpoint": self.team_config["default_endpoint"],
                 "model": self.team_config["default_model"],
                 "team_name": self.team_config["team_name"],
@@ -114,10 +114,10 @@ class AISettingsManager:
         try:
             api_settings = self.config.config.get("api_settings", {})
 
-            # If no saved settings, use team defaults
-            if not api_settings.get("api_key") or not api_settings.get("endpoint"):
+            # If no saved settings, use defaults
+            if not api_settings.get("endpoint"):
                 return {
-                    "api_key": "sk-bGP2YS9G4hoLVeazqFm5wd1fRLgGKpZkmaTUO8bUKVre7MMi",
+                    "api_key": api_settings.get("api_key", ""),  # 可能为空
                     "endpoint": self.team_config["default_endpoint"],
                     "model": api_settings.get("model", self.team_config["default_model"]),
                     "team_name": self.team_config["team_name"],
@@ -134,7 +134,7 @@ class AISettingsManager:
         except Exception as e:
             logger.error(f"Error loading API settings: {e}")
             return {
-                "api_key": "sk-bGP2YS9G4hoLVeazqFm5wd1fRLgGKpZkmaTUO8bUKVre7MMi",
+                "api_key": "",  # 出错时不暴露密钥
                 "endpoint": self.team_config["default_endpoint"],
                 "model": self.team_config["default_model"],
                 "team_name": self.team_config["team_name"],
@@ -161,7 +161,7 @@ class AISettingsManager:
                         try:
                             dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
                             status += f"  • Last updated: {dt.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                        except:
+                        except (ValueError, AttributeError):
                             status += f"  • {key}: {value}\n"
                     elif value:
                         status += f"  • {key}: {value}\n"
@@ -316,7 +316,7 @@ def open_settings_dialog():
             try:
                 dt = datetime.fromisoformat(current_settings["last_updated"].replace('Z', '+00:00'))
                 last_updated_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-            except:
+            except (ValueError, AttributeError):
                 last_updated_str = current_settings["last_updated"]
 
             ttk.Label(api_tab, text="Last updated:", font=("TkDefaultFont", 9)).grid(
@@ -547,9 +547,9 @@ def test_settings_module():
         if HAS_AI_CONFIG and manager.config:
             print(f"✅ Configuration file path: {manager.config.config_file}")
 
-            # Test API settings save
+            # Test API settings save (use placeholder for testing)
             test_result, message = manager.save_api_settings(
-                "sk-bGP2YS9G4hoLVeazqFm5wd1fRLgGKpZkmaTUO8bUKVre7MMi",
+                "test-api-key-placeholder",  # 测试用占位符
                 "https://api.microatp.com/v1/chat/completions",
                 "deepseek-chat"
             )

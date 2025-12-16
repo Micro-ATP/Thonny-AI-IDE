@@ -50,11 +50,9 @@ class AIClient:
             logger.debug(f"Loaded config: endpoint={self.endpoint}, model={self.model}, api_key={'*' * 6 if self.api_key else 'None'}")
         except Exception as e:
             logger.warning(f"Failed to load config: {e}")
-            # 使用团队默认配置作为后备
-            self.api_key = "sk-bGP2YS9G4hoLVeazqFm5wd1fRLgGKpZkmaTUO8bUKVre7MMi"
-            self.endpoint = "https://api.microatp.com/v1/chat/completions"
-            self.model = "deepseek-chat"
-            logger.info("Using team default API configuration")
+            # 配置加载失败时，API 将无法使用
+            # 用户需要在设置中配置 API
+            logger.warning("No API configuration available. Please configure in Settings.")
 
     def request(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -291,6 +289,15 @@ class AIClient:
         发送真实 API 请求（使用 requests 库）
         """
         import requests
+        
+        # 检查 API 密钥是否配置
+        if not self.api_key:
+            logger.error("API key not configured. Please set up in Settings.")
+            return {
+                "success": False,
+                "message": "API 密钥未配置，请在设置中配置 API Key",
+                "timestamp": datetime.now().isoformat()
+            }
         
         try:
             code_text = context.get("text", "")
