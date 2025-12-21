@@ -60,6 +60,8 @@ class GhostText:
         self.active = False
         self.suggestion = ""
         self.start_idx = None
+        self.end_idx = None  # 保存结束位置
+        self.last_cursor_pos = None  # 跟踪光标位置
         
         # 配置样式
         self.widget.tag_configure("ghost", foreground="#888888")
@@ -68,6 +70,7 @@ class GhostText:
         self._bind_tab()
         self.widget.bind("<Escape>", self._on_escape, add=True)
         self.widget.bind("<Key>", self._on_key, add=True)
+        self.widget.bind("<KeyRelease>", self._on_key_release_check, add=True)
     
     def _bind_tab(self):
         """特殊处理 Tab 绑定"""
@@ -100,11 +103,94 @@ class GhostText:
                            'Control_L', 'Control_R', 'Alt_L', 'Alt_R'):
             return None
         
-        # 如果有 ghost text 且用户输入了字符，清除
+        # 如果有 ghost text，检查是否需要清除
         if (self.active or self.widget.tag_ranges("ghost")):
+            # 用户输入了可打印字符，清除 ghost text
             if event.char and event.char.isprintable():
                 self._clear()
+            # 用户按了退格或删除键，清除 ghost text
+            elif event.keysym in ('BackSpace', 'Delete'):
+                self._clear()
+        
+        # 保存当前光标位置（用于检查是否删除）
+        try:
+            self.last_cursor_pos = self.widget.index("insert")
+        except:
+            pass
+        
         return None
+    
+    def _on_key_release_check(self, event):
+        """按键释放后检查光标位置，如果光标在 ghost text 起始位置之前，清除 ghost text"""
+        if not self.active:
+            return None
+        
+        try:
+            current_pos = self.widget.index("insert")
+            # 如果光标位置在 ghost text 起始位置之前，说明用户删除了代码
+            if self.start_idx and current_pos:
+                if self._compare_indices(current_pos, self.start_idx) < 0:
+                    self._clear()
+                    return None
+        except:
+            pass
+        
+        return None
+    
+    def _compare_indices(self, idx1, idx2):
+        """比较两个索引位置，返回 -1, 0, 1"""
+        try:
+            line1, col1 = map(int, idx1.split('.'))
+            line2, col2 = map(int, idx2.split('.'))
+            if line1 < line2:
+                return -1
+            elif line1 > line2:
+                return 1
+            else:
+                if col1 < col2:
+                    return -1
+                elif col1 > col2:
+                    return 1
+                else:
+                    return 0
+        except:
+            return 0
+    
+    def _on_key_release_check(self, event):
+        """按键释放后检查光标位置，如果光标在 ghost text 起始位置之前，清除 ghost text"""
+        if not self.active:
+            return None
+        
+        try:
+            current_pos = self.widget.index("insert")
+            # 如果光标位置在 ghost text 起始位置之前，说明用户删除了代码
+            if self.start_idx and current_pos:
+                if self._compare_indices(current_pos, self.start_idx) < 0:
+                    self._clear()
+                    return None
+        except:
+            pass
+        
+        return None
+    
+    def _compare_indices(self, idx1, idx2):
+        """比较两个索引位置，返回 -1, 0, 1"""
+        try:
+            line1, col1 = map(int, idx1.split('.'))
+            line2, col2 = map(int, idx2.split('.'))
+            if line1 < line2:
+                return -1
+            elif line1 > line2:
+                return 1
+            else:
+                if col1 < col2:
+                    return -1
+                elif col1 > col2:
+                    return 1
+                else:
+                    return 0
+        except:
+            return 0
     
     def show(self, text: str) -> bool:
         """显示 ghost text"""
@@ -140,24 +226,11 @@ class GhostText:
             # 移除灰色标签（文本保留）
             self.widget.tag_remove("ghost", "1.0", "end")
             
-            # 找到 ghost text 的实际结束位置
-            # 使用 search 而不是字符计数，避免多字节字符问题
-            try:
-                # 获取当前 ghost text 的结束位置
-                ghost_end = self.widget.search(
-                    "", self.start_idx, stopindex="end", 
-                    regexp=False, nocase=False
-                )
-                if not ghost_end:
-                    # 如果找不到，计算位置
-                    ghost_end = self.widget.index(f"{self.start_idx}+{len(self.suggestion)}c")
-            except Exception:
-                ghost_end = self.widget.index(f"{self.start_idx}+{len(self.suggestion)}c")
-            
             # 移动光标到末尾
-            self.widget.mark_set("insert", ghost_end if ghost_end else "insert")
+            end_idx = self.widget.index(f"{self.start_idx}+{len(self.suggestion)}c")
+            self.widget.mark_set("insert", end_idx)
             
-            logger.info("✅ Accepted")
+            logger.info(f"✅ Accepted")
         except Exception as e:
             logger.error(f"Accept error: {e}")
         
@@ -172,11 +245,8 @@ class GhostText:
                 if not ranges:
                     break
                 self.widget.delete(ranges[0], ranges[1])
-        except tk.TclError:
-            # widget 可能已被销毁
+        except:
             pass
-        except Exception as e:
-            logger.debug(f"Clear error (ignored): {e}")
         self._reset()
     
     def _reset(self):
@@ -184,6 +254,8 @@ class GhostText:
         self.active = False
         self.suggestion = ""
         self.start_idx = None
+        self.end_idx = None
+        self.last_cursor_pos = None
 
 
 # ==================== 全局管理 ====================
@@ -193,34 +265,14 @@ _request_lock = threading.Lock()
 _last_trigger = 0
 _auto_timer = None
 _setup_done = set()
-import weakref
-_widget_refs = {}  # widget_id -> weakref
 
 
 def get_ghost(widget) -> GhostText:
     """获取/创建 GhostText"""
     wid = id(widget)
-    
-    # 清理已销毁的 widget
-    _cleanup_dead_widgets()
-    
     if wid not in _ghost_texts:
         _ghost_texts[wid] = GhostText(widget)
-        _widget_refs[wid] = weakref.ref(widget)
     return _ghost_texts[wid]
-
-
-def _cleanup_dead_widgets():
-    """清理已销毁的 widget 引用，防止内存泄漏"""
-    dead_ids = []
-    for wid, ref in _widget_refs.items():
-        if ref() is None:  # widget 已被销毁
-            dead_ids.append(wid)
-    
-    for wid in dead_ids:
-        _ghost_texts.pop(wid, None)
-        _widget_refs.pop(wid, None)
-        _setup_done.discard(wid)
 
 
 def setup_widget(widget):
@@ -235,17 +287,7 @@ def setup_widget(widget):
     
     # 绑定自动触发
     widget.bind("<KeyRelease>", lambda e: _on_key_release(e, widget), add=True)
-    
-    # 绑定销毁事件以清理资源
-    widget.bind("<Destroy>", lambda e: _on_widget_destroy(wid), add=True)
     _setup_done.add(wid)
-
-
-def _on_widget_destroy(wid):
-    """widget 销毁时清理资源"""
-    _ghost_texts.pop(wid, None)
-    _widget_refs.pop(wid, None)
-    _setup_done.discard(wid)
 
 
 def _on_key_release(event, widget):
@@ -255,8 +297,15 @@ def _on_key_release(event, widget):
     if not AUTO_TRIGGER_ENABLED:
         return
     
-    # 忽略特殊键
-    if event.keysym in ('Tab', 'Escape', 'Return', 'BackSpace', 'Delete',
+    # 如果用户按了退格或删除键，清除 ghost text
+    if event.keysym in ('BackSpace', 'Delete'):
+        ghost = _ghost_texts.get(id(widget))
+        if ghost and ghost.active:
+            ghost._clear()
+        return
+    
+    # 忽略其他特殊键
+    if event.keysym in ('Tab', 'Escape', 'Return',
                        'Up', 'Down', 'Left', 'Right',
                        'Shift_L', 'Shift_R', 'Control_L', 'Control_R'):
         return
@@ -270,7 +319,7 @@ def _on_key_release(event, widget):
     if _auto_timer:
         try:
             widget.after_cancel(_auto_timer)
-        except (tk.TclError, ValueError):
+        except:
             pass
     
     # 检查是否应该触发
@@ -291,10 +340,7 @@ def _should_trigger(widget) -> bool:
             if line.startswith(t):
                 return True
         return False
-    except tk.TclError:
-        return False
-    except Exception as e:
-        logger.debug(f"Trigger check error: {e}")
+    except:
         return False
 
 
@@ -428,8 +474,8 @@ def open_folder(event=None):
     # 1. 显示文件浏览器
     try:
         wb.show_view("FilesView")
-    except Exception as e:
-        logger.debug(f"Show FilesView error: {e}")
+    except:
+        pass
     
     # 2. 导航到选择的文件夹
     try:
@@ -444,8 +490,8 @@ def open_folder(event=None):
     try:
         os.chdir(folder)
         logger.info(f"📂 Working directory: {folder}")
-    except OSError as e:
-        logger.warning(f"Failed to change working directory: {e}")
+    except:
+        pass
     
     # 4. 显示提示
     showinfo("打开文件夹", f"已打开项目文件夹:\n{folder}\n\n工作目录已切换。")
@@ -492,10 +538,8 @@ def load_plugin():
             editor = wb.get_editor_notebook().get_current_editor()
             if editor:
                 setup_widget(editor.get_text_widget())
-        except AttributeError:
-            pass  # 编辑器可能尚未初始化
-        except Exception as e:
-            logger.debug(f"Editor change error: {e}")
+        except:
+            pass
     
     wb.bind("<<NotebookTabChanged>>", on_editor_change, add=True)
     wb.after(1000, on_editor_change)

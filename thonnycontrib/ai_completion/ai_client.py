@@ -3,6 +3,7 @@ AI 客户端模块
 负责与 AI 服务进行交互，发送代码分析请求并处理响应
 """
 import json
+import re
 import time
 from datetime import datetime
 from logging import getLogger
@@ -319,63 +320,193 @@ class AIClient:
                 current_line = lines[-1] if lines else ""
                 current_line_stripped = current_line.strip()
                 
-                # 获取前面几行作为上下文
-                context_lines = lines[-20:] if len(lines) > 20 else lines
+                # 获取更多上下文（增加到 50 行，让 AI 看到更多代码）
+                context_lines = lines[-50:] if len(lines) > 50 else lines
                 context_code = '\n'.join(context_lines)
                 
-                # 智能 System Prompt
-                system_prompt = """You are an expert Python code completion AI, similar to GitHub Copilot.
+                # 分析当前行的上下文特征
+                has_indent = current_line.startswith((' ', '\t'))
+                indent_level = len(current_line) - len(current_line.lstrip())
+                is_in_function = any('def ' in l for l in lines[-10:])
+                is_in_class = any('class ' in l for l in lines[-10:])
+                
+                # 智能 System Prompt - 更激进、更智能（类似 Copilot）
+                system_prompt = """You are an expert Python code completion AI, exactly like GitHub Copilot.
 
-Your task: Complete the code naturally and intelligently.
+Your mission: Proactively suggest code completions that help programmers write code faster.
+
+CRITICAL RULES - READ CAREFULLY:
+1. Output ONLY the code that should come AFTER the cursor - nothing before the cursor
+2. NEVER repeat code that already exists in the context
+3. NEVER output complete function/class definitions if they already exist
+4. If user types partial identifier (e.g., "fibon"), only complete the remaining part (e.g., "acci(10)")
+5. If a function is already defined above, DO NOT redefine it - just complete the call
+
+CORE PRINCIPLES:
+1. Be PROACTIVE - suggest completions even for partial inputs
+2. Be SMART - understand context, variable names, function definitions, imports
+3. Be HELPFUL - complete common patterns, suggest next logical steps
+4. Be CONFIDENT - make educated guesses, user can always reject
 
 STRICT OUTPUT RULES:
-1. Output ONLY the code completion - no explanations, no markdown, no code blocks
+1. Output ONLY the code completion - no explanations, no markdown, no code blocks, no comments
 2. The completion should seamlessly continue from where the cursor is
-3. Match the existing code style, indentation, and naming conventions
-4. Be smart about what to complete:
-   - For function definitions: complete parameters, docstring, and body
-   - For loops/conditions: complete the block with sensible logic
-   - For class definitions: add __init__ and common methods
-   - For incomplete statements: finish them logically
+3. Match the existing code style, indentation, and naming conventions EXACTLY
+4. Be context-aware: look at defined functions, variables, classes, imports in the code
+5. NEVER duplicate existing code - only complete what's missing
 
-EXAMPLES of good completions:
+COMPLETION STRATEGIES:
 
-Input: "def calculate_sum"
+1. PARTIAL IDENTIFIERS - CALLING EXISTING FUNCTIONS:
+   - If user types "fibon" and context has "def fibonacci(n):", output "acci(10)" (function CALL, not definition)
+   - If user types "user_" and context has "user_name", output "name"
+   - For existing functions: complete as a CALL (e.g., "acci(10)"), NOT as a definition (e.g., "acci(n):")
+   - Match partial identifiers to defined names in context
+   - DO NOT output the full function definition again - only complete the call
+
+2. FUNCTION DEFINITIONS - DEFINING NEW FUNCTIONS:
+   - If user types "def calculate_sum", complete the FULL function definition with body
+   - Complete parameters based on function name and context
+   - Add docstrings when appropriate
+   - Suggest complete, useful function bodies
+   - Output the ENTIRE function definition (parameters, docstring, body)
+   - BUT: If function already exists in context, don't redefine it - complete as a call instead
+
+3. CONTROL FLOW:
+   - Complete if/for/while blocks with sensible logic
+   - Suggest common patterns (e.g., "for item in" -> "items:")
+
+4. EXPRESSIONS:
+   - Complete comparisons, assignments, method calls
+   - Suggest common operations based on variable types
+
+5. COMMON PATTERNS:
+   - List comprehensions, generator expressions
+   - Context managers, exception handling
+   - Property decorators, class methods
+
+EXAMPLES (PAY ATTENTION - THESE ARE CRITICAL):
+
+Context: 
+```python
+def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n-1) + fibonacci(n-2)
+
+fibon|
+```
+Output: acci(10)  (function CALL, complete with arguments)
+WRONG: bonacci(n): ... (DO NOT output function definition!)
+WRONG: bonacci(n):\n    ... (DO NOT include function body!)
+WRONG: bonacci(n): ... def fibonacci(n): ... (DO NOT add multiple functions!)
+
+Context: user_name = "John"
+Input: "print(user_n|"
+Output: ame)  (complete the variable name)
+
+Context: def calculate_sum exists above
+Input: "calc|"
+Output: ulate_sum(10)  (function CALL, not definition)
+NOT: ulate_sum(numbers): ... (DO NOT redefine the function!)
+
+Input: "def calculate_sum|" (NEW function, not defined yet)
 Output: (numbers):
     \"\"\"Calculate the sum of a list of numbers.\"\"\"
     return sum(numbers)
+(Complete the FULL function definition with body - this is correct!)
 
-Input: "for i in range"
-Output: (10):
-        print(i)
+Input: "def hello|" (NEW function)
+Output: (name):
+    \"\"\"Greet someone.\"\"\"
+    print(f\"Hello, {name}!\")
+(Complete the FULL function definition - this is what user wants!)
 
-Input: "class User"
-Output: :
-    \"\"\"A class representing a user.\"\"\"
-    
-    def __init__(self, name, email):
-        self.name = name
-        self.email = email
+Input: "for item in|"
+Output: items:
+        print(item)
 
-Input: "if x > "
+Input: "if x >|"
 Output: 0:
-        print("Positive")
+        return True
 
-Remember: Output ONLY the completion code, nothing else."""
+Remember: 
+- Be PROACTIVE but SMART
+- Only complete what's missing
+- NEVER duplicate existing code
+- If function exists, complete the CALL, not the definition"""
 
-                # 智能 User Prompt
-                user_prompt = f"""Complete this Python code. Output ONLY the completion that should come after the cursor position (marked with |).
+                # 智能 User Prompt - 提供更多上下文信息
+                # 提取已定义的函数、类、变量名（帮助 AI 匹配）
+                defined_names = []
+                for line in context_lines:
+                    # 提取函数定义
+                    if 'def ' in line:
+                        match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)', line)
+                        if match:
+                            defined_names.append(match.group(1))
+                    # 提取类定义
+                    if 'class ' in line:
+                        match = re.search(r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)', line)
+                        if match:
+                            defined_names.append(match.group(1))
+                    # 提取变量赋值（简单模式）
+                    if '=' in line and not line.strip().startswith('#'):
+                        match = re.search(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=', line)
+                        if match:
+                            defined_names.append(match.group(1))
+                
+                defined_names_str = ', '.join(set(defined_names[-20:]))  # 最近 20 个
+                
+                # 分析当前行是否包含部分标识符
+                partial_identifier = None
+                if current_line_stripped:
+                    # 检查是否是部分标识符（字母开头，可能不完整）
+                    match = re.search(r'([a-zA-Z_][a-zA-Z0-9_]*)$', current_line_stripped)
+                    if match:
+                        potential_id = match.group(1)
+                        # 检查这个标识符是否匹配已定义的名称
+                        for name in defined_names:
+                            if name.startswith(potential_id) and name != potential_id:
+                                partial_identifier = (potential_id, name)
+                                break
+                
+                # 构建更清晰的提示
+                context_note = ""
+                if partial_identifier:
+                    context_note = f"\n⚠️ IMPORTANT: User typed '{partial_identifier[0]}' which matches '{partial_identifier[1]}' in context. Only complete the REMAINING part (e.g., if '{partial_identifier[1]}' is a function, output 'acci(10)' not the full function definition)."
+                
+                user_prompt = f"""Complete this Python code. Output ONLY the code that should come AFTER the cursor position (marked with |).
 
+Full context (code above cursor):
 ```python
 {context_code}|
 ```
 
-The cursor is at the end of: `{current_line_stripped}`
+Current line (cursor at end): `{current_line_stripped}`
+Current indentation: {indent_level} spaces
+In function: {is_in_function}
+In class: {is_in_class}
 
-Complete it naturally:"""
+Defined names in context: {defined_names_str if defined_names_str else 'None'}{context_note}
+
+CRITICAL INSTRUCTIONS (MUST FOLLOW):
+1. Look at the context - if a function/class/variable is ALREADY DEFINED, DO NOT redefine it
+2. If user typed a partial identifier (like "fibon"), only complete the remaining part (like "acci(10)")
+   - DO NOT output the full function definition
+   - DO NOT include function body
+   - DO NOT add multiple functions
+3. Only output what comes AFTER the cursor, never repeat what's before
+4. If the function already exists above, complete the CALL, not the definition
+5. Output ONLY ONE completion - do not generate multiple functions or multiple completions
+6. If completing a partial identifier, output the shortest possible completion (e.g., "acci(10)" not "bonacci(n): ...")
+
+REMEMBER: You are completing code, not writing new functions. Keep it minimal and focused!
+
+Analyze the context and suggest the most likely completion. Be proactive but smart!"""
                 
-                temperature = 0.3  # 稍微提高以增加创造性
-                max_tokens = 300   # 增加 token 数以支持更长的补全
+                temperature = 0.4  # 提高创造性，更主动地猜测（类似 Copilot）
+                max_tokens = 400   # 增加 token 数以支持更长的补全和多行建议
             else:
                 system_prompt = "You are a helpful code analysis assistant."
                 user_prompt = self._build_prompt(context)
@@ -462,7 +593,7 @@ Complete it naturally:"""
     def _clean_completion(self, response: str, mode: str) -> str:
         """
         智能清理 AI 补全响应
-        移除不需要的格式，保留纯代码
+        移除不需要的格式，保留纯代码，避免重复定义
         """
         if mode != "completion":
             return response
@@ -532,6 +663,201 @@ Complete it naturally:"""
                 else:
                     break
             result = '\n'.join(final_lines)
+        
+        # 4. 检测并移除重复的函数/类定义（关键修复）
+        # 同时处理一行中包含多个函数定义的情况（如 "return x)def fibonacci(n):"）
+        if result:
+            lines = result.split('\n')
+            cleaned_lines = []
+            seen_definitions = set()  # 跟踪已见过的定义
+            
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                
+                # 检查一行中是否包含多个函数定义（如 "return x)def fibonacci(n):"）
+                if 'def ' in stripped and not stripped.startswith('def '):
+                    # 找到第一个 'def ' 的位置
+                    def_pos = stripped.find('def ')
+                    if def_pos > 0:
+                        # 只保留 def 之前的部分
+                        line = line[:line.find('def ')]
+                        stripped = line.strip()
+                        logger.debug(f"Found multiple definitions in one line, truncating: {line[:50]}...")
+                
+                # 检测函数定义
+                if stripped.startswith('def '):
+                    # 提取函数名
+                    match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)', stripped)
+                    if match:
+                        func_name = match.group(1)
+                        # 如果已经见过这个函数定义，跳过整个函数体
+                        if func_name in seen_definitions:
+                            # 跳过直到下一个顶级定义或文件结束
+                            continue
+                        seen_definitions.add(func_name)
+                
+                # 检测类定义
+                elif stripped.startswith('class '):
+                    match = re.search(r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)', stripped)
+                    if match:
+                        class_name = match.group(1)
+                        if class_name in seen_definitions:
+                            continue
+                        seen_definitions.add(class_name)
+                
+                cleaned_lines.append(line)
+            
+            result = '\n'.join(cleaned_lines)
+        
+        # 5. 智能清理：区分"定义新函数"和"调用已存在函数"
+        if result:
+            lines = result.split('\n')
+            if len(lines) > 1:
+                first_line = lines[0].strip()
+                
+                # 情况1: 第一行是 "def " 开头 - 这是定义新函数，应该保留完整的函数定义
+                if first_line.startswith('def '):
+                    # 这是定义新函数，保留完整的函数定义（包括函数体）
+                    # 但需要移除后续重复的函数定义
+                    keep_lines = []
+                    in_function = True
+                    first_func_name = None
+                    
+                    # 提取第一个函数名
+                    match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)', first_line)
+                    if match:
+                        first_func_name = match.group(1)
+                    
+                    for i, line in enumerate(lines):
+                        stripped = line.strip()
+                        
+                        # 检查是否是新的函数定义
+                        if stripped.startswith('def '):
+                            match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)', stripped)
+                            if match:
+                                func_name = match.group(1)
+                                if func_name == first_func_name and i > 0:
+                                    # 重复的函数定义，停止保留
+                                    break
+                                elif i > 0:
+                                    # 新的函数定义，停止保留第一个函数
+                                    break
+                        
+                        # 保留当前行
+                        keep_lines.append(line)
+                        
+                        # 检查是否函数体结束（下一行是顶级定义）
+                        if i < len(lines) - 1:
+                            next_stripped = lines[i + 1].strip()
+                            if next_stripped.startswith('def ') or next_stripped.startswith('class '):
+                                # 下一个是顶级定义，当前函数结束
+                                if not (line.startswith(('    ', '\t')) or stripped == ''):
+                                    # 当前行不是缩进的，函数已结束
+                                    pass
+                    
+                    if keep_lines:
+                        result = '\n'.join(keep_lines).strip()
+                        logger.debug(f"Keeping complete function definition: {result[:50]}...")
+                
+                # 情况2: 第一行是部分补全（如 "bonacci(n):"），后面有完整定义
+                # 这是调用已存在函数的情况，不应该包含函数定义或函数体
+                elif (first_line.endswith(':') and 'def ' not in first_line and 
+                      '(' in first_line):
+                    # 检查后续行是否包含完整的函数定义（def 关键字）
+                    has_full_def = any('def ' in line.strip() for line in lines[1:])
+                    if has_full_def:
+                        # 这是调用已存在函数，不应该有函数定义
+                        # 只保留第一行，但需要转换为函数调用格式（去掉冒号，添加参数）
+                        # 如果第一行是 "bonacci(n):"，应该转换为 "bonacci(10)" 或类似
+                        if first_line.endswith('):'):
+                            # 尝试转换为函数调用
+                            # 提取函数名部分
+                            match = re.search(r'([a-zA-Z_][a-zA-Z0-9_]*)\([^)]*\):', first_line)
+                            if match:
+                                func_call = match.group(1) + '(10)'  # 简化为带参数的调用
+                                result = func_call
+                            else:
+                                result = lines[0].rstrip(':')  # 去掉冒号
+                        else:
+                            result = lines[0]
+                        logger.debug(f"Removed duplicate function definition, keeping only call: {result}")
+                    else:
+                        # 检查第一行后面是否跟着函数体（缩进的代码）
+                        # 如果是，这是错误的，只保留第一行并转换为调用格式
+                        if len(lines) > 1:
+                            second_line = lines[1].strip() if lines[1] else ""
+                            # 如果第二行是缩进的（函数体），这是错误的
+                            if second_line and (second_line.startswith('    ') or second_line.startswith('\t')):
+                                # 只保留第一行，转换为函数调用格式
+                                if first_line.endswith('):'):
+                                    match = re.search(r'([a-zA-Z_][a-zA-Z0-9_]*)\([^)]*\):', first_line)
+                                    if match:
+                                        result = match.group(1) + '(10)'
+                                    else:
+                                        result = lines[0].rstrip(':')
+                                else:
+                                    result = lines[0]
+                                logger.debug(f"Removed function body after function call, keeping only: {result}")
+                
+                # 情况3: 第一行是正常补全（不是 def），但后面跟着多个函数定义
+                # 找到第一个 "def " 的位置
+                first_def_idx = None
+                for i, line in enumerate(lines):
+                    if 'def ' in line.strip():
+                        first_def_idx = i
+                        break
+                
+                if first_def_idx is not None and first_def_idx > 0:
+                    # 如果第一个 def 不在第一行，检查是否需要截断
+                    # 如果第一行看起来是函数调用（如 "acci(10)"），保留到第一个 def 之前
+                    if (first_line and not first_line.startswith('def ') and 
+                        (first_line.endswith(')') or '(' in first_line)):
+                        # 只保留第一行到第一个 def 之前的内容（函数调用）
+                        result = '\n'.join(lines[:first_def_idx]).strip()
+                        logger.debug(f"Function call followed by definitions, keeping only call: {result[:50]}...")
+                
+                # 情况4: 如果补全包含多个函数定义，保留第一个完整的函数定义
+                # 检查是否有重复的函数名
+                def_names = []
+                first_def_start = None
+                first_def_end = None
+                
+                for i, line in enumerate(lines):
+                    stripped = line.strip()
+                    if stripped.startswith('def '):
+                        match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)', stripped)
+                        if match:
+                            func_name = match.group(1)
+                            if func_name in def_names:
+                                # 重复的函数定义，第一个函数定义结束在这里
+                                if first_def_start is not None and first_def_end is None:
+                                    first_def_end = i
+                                break
+                            def_names.append(func_name)
+                            if first_def_start is None:
+                                first_def_start = i
+                
+                # 如果找到了第一个函数定义，保留完整的函数定义（包括函数体）
+                if first_def_start is not None:
+                    if first_def_end is None:
+                        # 没有找到重复，保留到文件结束
+                        first_def_end = len(lines)
+                    
+                    # 保留第一个完整的函数定义
+                    if first_def_start == 0:
+                        # 第一行就是 def，保留完整的函数定义
+                        result = '\n'.join(lines[:first_def_end]).strip()
+                        logger.debug(f"Keeping first complete function definition: {result[:50]}...")
+                
+                # 情况5: 检查是否有多个函数定义（即使函数名不同）
+                # 如果第一行是部分补全，后面不应该有任何函数定义
+                def_count = sum(1 for line in lines if 'def ' in line.strip())
+                if def_count > 1 and first_line and not first_line.startswith('def '):
+                    # 第一行不是 def，但后面有多个 def，说明可能是部分补全 + 多个函数定义
+                    # 只保留第一行（这是函数调用）
+                    if first_line.endswith(':') or '(' in first_line:
+                        result = lines[0]
+                        logger.debug(f"Multiple functions after partial completion, keeping only first line: {result}")
         
         return result.rstrip() if result else text.strip()
 
