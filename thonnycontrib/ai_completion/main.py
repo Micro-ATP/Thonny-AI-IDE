@@ -194,7 +194,7 @@ class GhostText:
             self.widget.mark_set("insert", end)
             
             logger.info("Ghost text accepted")
-            get_workbench().set_status_message("✅ 已接受补全")
+            get_workbench().set_status_message("✅ Completion Completed")
             self.widget.after(1500, lambda: get_workbench().set_status_message(""))
             
         except Exception as e:
@@ -324,7 +324,7 @@ def do_completion(widget, manual=False):
         _is_requesting = True
     
     try:
-        get_workbench().set_status_message("🤖 AI 正在思考...")
+        get_workbench().set_status_message("🤖 AI is thinking...")
     except:
         pass
     
@@ -413,7 +413,7 @@ def open_folder(event=None):
     """打开文件夹功能"""
     from tkinter import filedialog
     
-    folder = filedialog.askdirectory(title="选择项目文件夹")
+    folder = filedialog.askdirectory(title="choose project file")
     if not folder:
         return
     
@@ -436,7 +436,7 @@ def open_folder(event=None):
     except:
         pass
     
-    showinfo("打开文件夹", f"已打开: {folder}")
+    showinfo("opening projects", f"opened: {folder}")
 
 
 def load_plugin():
@@ -458,7 +458,7 @@ def load_plugin():
     wb.add_command(
         command_id="open_folder",
         menu_name="file",
-        command_label="打开文件夹...",
+        command_label="opening folder ...",
         handler=open_folder,
         default_sequence="<Control-Shift-o>",
         accelerator="Ctrl+Shift+O",
