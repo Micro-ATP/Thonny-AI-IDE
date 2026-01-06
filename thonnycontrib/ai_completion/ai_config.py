@@ -82,7 +82,7 @@ class AICompletionConfig:
                     self._merge_configs(config, user_config)
                 logger.info("User configuration loaded successfully")
         except Exception as e:
-            logger.warning(f"配置加载错误，使用默认配置: {e}")
+            logger.warning(f"error in loading config, using default config: {e}")
 
         return config
     
@@ -248,7 +248,7 @@ class AICompletionConfig:
             logger.info(f"Configuration saved to {self.config_file}")
             return True
         except Exception as e:
-            logger.error(f"保存配置失败: {e}")
+            logger.error(f"unable to save config: {e}")
             return False
     
     def reload_config(self):
@@ -273,7 +273,7 @@ class AICompletionConfig:
             self._merge_configs(self.config, new_config)
             return True
         except Exception as e:
-            logger.error(f"导入配置失败: {e}")
+            logger.error(f"unable to fetch config: {e}")
             return False
 
 
