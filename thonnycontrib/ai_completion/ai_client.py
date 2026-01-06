@@ -1105,12 +1105,12 @@ Respond with only the code completion, nothing else."""
                     "timestamp": analysis_result.get("timestamp", "")
                 }
         except Exception as e:
-            print(f"提取元数据时出错: {e}")
+            print(f"error in extracting meta data: {e}")
 
         # 如果失败或没有元数据，返回默认值
         return {
             "success": False,
-            "error": "无法提取元数据",
+            "error": "unable to extract meta data",
             "filename": "Unknown",
             "language": "python",
             "code_length": 0,
