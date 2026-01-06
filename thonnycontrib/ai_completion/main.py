@@ -40,6 +40,12 @@ try:
 except ImportError:
     HAS_COMPLETION_HANDLER = False
 
+# ========== （导入 ask_ai 模块）==========
+try:
+    from .ask_ai import open_ask_ai_dialog
+    HAS_ASK_AI = True
+except ImportError:
+    HAS_ASK_AI = False
 
 # ==================== 配置 ====================
 AUTO_TRIGGER_ENABLED = True
@@ -409,6 +415,128 @@ def trigger_ai_completion(event=None):
     return "break"
 
 
+# ========== 新函数 ==========
+def open_ask_ai_everything(event=None):
+    """打开 Ask AI Everything 对话框"""
+    try:
+        if HAS_ASK_AI:
+            open_ask_ai_dialog()
+        else:
+            # 备用：简单对话框
+            _create_simple_ask_dialog()
+    except Exception as e:
+        from tkinter.messagebox import showerror
+        showerror("错误", f"无法打开 AI 对话框:\n\n{e}")
+    return "break"
+
+
+def _create_simple_ask_dialog():
+    """简单的 Ask AI 对话框（当 ask_ai.py 不可用时的备用方案）"""
+    from tkinter import scrolledtext
+    from tkinter.messagebox import showerror
+
+    wb = get_workbench()
+
+    dialog = tk.Toplevel(wb)
+    dialog.title("🤖 Ask AI Everything")
+    dialog.geometry("600x500")
+    dialog.transient(wb)
+
+    main_frame = tk.Frame(dialog, padx=10, pady=10)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+
+    title = tk.Label(main_frame, text="🤖 Ask AI Everything", font=("Arial", 14, "bold"))
+    title.pack(pady=(0, 10))
+
+    chat_frame = tk.LabelFrame(main_frame, text="对话")
+    chat_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+    chat_display = scrolledtext.ScrolledText(chat_frame, wrap=tk.WORD, state=tk.DISABLED,
+                                             bg="#1e1e1e", fg="#ffffff", font=("Consolas", 10))
+    chat_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+    input_frame = tk.Frame(main_frame)
+    input_frame.pack(fill=tk.X)
+
+    input_text = tk.Text(input_frame, height=3, font=("Arial", 10))
+    input_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+    input_text.focus_set()
+
+    status_var = tk.StringVar(value="就绪")
+    status_label = tk.Label(main_frame, textvariable=status_var, fg="gray")
+    status_label.pack(pady=(5, 0))
+
+    def append_message(role, text):
+        chat_display.config(state=tk.NORMAL)
+        if role == "user":
+            chat_display.insert(tk.END, f"\n你: {text}\n")
+        elif role == "ai":
+            chat_display.insert(tk.END, f"\nAI: {text}\n")
+        elif role == "error":
+            chat_display.insert(tk.END, f"\n❌ 错误: {text}\n")
+        chat_display.config(state=tk.DISABLED)
+        chat_display.see(tk.END)
+
+    def send_message():
+        message = input_text.get("1.0", tk.END).strip()
+        if not message:
+            return
+
+        input_text.delete("1.0", tk.END)
+        append_message("user", message)
+        status_var.set("🤔 AI 正在思考...")
+
+        def request_thread():
+            try:
+                if not HAS_AI_CLIENT:
+                    dialog.after(0, lambda: append_message("error", "AI 客户端未加载"))
+                    return
+
+                client = AIClient()
+                # 使用 request_chat 方法（需要 ai_client.py 支持）
+                if hasattr(client, 'request_chat'):
+                    result = client.request_chat({"message": message, "history": []})
+                else:
+                    # 兼容旧版 ai_client.py
+                    result = client.request({
+                        "text": message,
+                        "prefix": message,
+                        "suffix": "",
+                        "language": "general",
+                        "mode": "chat"
+                    })
+
+                def handle_result():
+                    if result.get("success"):
+                        response = result.get("data", {}).get("raw_analysis", "")
+                        append_message("ai", response if response else "（无响应）")
+                        status_var.set("✅ 完成")
+                    else:
+                        append_message("error", result.get("message", "未知错误"))
+                        status_var.set("❌ 失败")
+
+                dialog.after(0, handle_result)
+            except Exception as e:
+                dialog.after(0, lambda: append_message("error", str(e)))
+                dialog.after(0, lambda: status_var.set("❌ 错误"))
+
+        threading.Thread(target=request_thread, daemon=True).start()
+
+    send_btn = tk.Button(input_frame, text="发送", command=send_message, width=8)
+    send_btn.pack(side=tk.RIGHT)
+
+    def on_enter(event):
+        if not (event.state & 0x1):
+            send_message()
+            return "break"
+
+    input_text.bind("<Return>", on_enter)
+    append_message("ai", "你好！我是 AI 助手，有什么可以帮你的吗？")
+
+
+# ==========  添加结束 ==========
+
+
 def open_folder(event=None):
     """打开文件夹功能"""
     from tkinter import filedialog
@@ -453,7 +581,17 @@ def load_plugin():
         accelerator="Ctrl+Alt+A",
         group=100
     )
-    
+    # ========== 👇 添加这段（注册 Ask AI 菜单）==========
+    wb.add_command(
+        command_id="ai_completion.ask_ai",
+        menu_name="tools",
+        command_label="Ask AI Everything...",
+        handler=open_ask_ai_everything,
+        default_sequence="<Control-Alt-q>",
+        accelerator="Ctrl+Alt+Q",
+        group=101
+    )
+    # ========== 👆 添加结束 ==========
     # 注册打开文件夹命令
     wb.add_command(
         command_id="open_folder",

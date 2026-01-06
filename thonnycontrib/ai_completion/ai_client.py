@@ -99,6 +99,133 @@ class AIClient:
                 "timestamp": datetime.now().isoformat()
             }
 
+    def request_chat(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        发送通用聊天请求（Ask AI Everything 使用）
+
+        Args:
+             context: 包含以下键的字典：
+                - message: 用户消息
+                - history: 对话历史（可选）
+
+        Returns:
+            包含响应的字典
+        """
+        import requests
+
+        message = context.get("message", "")
+        history = context.get("history", [])
+
+        if not message:
+            return {
+                "success": False,
+                "message": "消息不能为空",
+                "timestamp": datetime.now().isoformat()
+            }
+
+        # 检查 API 密钥
+        if not self.api_key:
+            return {
+                "success": False,
+                "message": "API 密钥未配置，请在 Tools → AI Assistant Settings 中设置",
+                "timestamp": datetime.now().isoformat()
+            }
+
+        try:
+            # 构建请求 URL
+            url = self.endpoint
+            if not url.endswith('/chat/completions'):
+                url = url.rstrip('/') + '/chat/completions'
+
+            # 构建消息列表
+            messages = [
+                {
+                    "role": "system",
+                    "content": """你是一个友好、博学的 AI 助手。你可以：
+1. 回答各种问题（编程、科学、生活、学习等）
+2. 帮助解释概念和提供建议
+3. 进行友好的对话
+4. 帮助解决问题和提供思路
+
+请用英文回答，回答要简洁清晰、有帮助。如果不确定，请诚实说明。"""
+                 }
+            ]
+
+            # 添加历史对话（最近6条）
+            for msg in history[-6:]:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": content})
+
+            # 添加当前消息
+            messages.append({"role": "user", "content": message})
+
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 2000,
+                "stream": False
+            }
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+
+            logger.info(f"Sending chat request to {url}")
+
+            # 发送请求
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            response.raise_for_status()
+            result = response.json()
+
+            # 提取响应
+            ai_response = ""
+            if "choices" in result and len(result["choices"]) > 0:
+                ai_response = result["choices"][0].get("message", {}).get("content", "")
+
+            if not ai_response:
+                raise ValueError("Empty response from AI")
+
+            logger.info(f"✅ Chat response received: {len(ai_response)} chars")
+
+            return {
+                "success": True,
+                "data": {
+                    "raw_analysis": ai_response,
+                    "metadata": {"mode": "chat", "model": self.model}
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+
+        except requests.exceptions.Timeout:
+            return {
+                "success": False,
+                "message": "请求超时，请稍后重试",
+                "timestamp": datetime.now().isoformat()
+            }
+        except requests.exceptions.RequestException as e:
+            error_msg = str(e)
+            if "401" in error_msg:
+                error_msg = "API 密钥无效，请检查设置"
+            elif "429" in error_msg:
+                error_msg = "请求过于频繁，请稍后重试"
+            return {
+                "success": False,
+                "message": f"网络错误: {error_msg}",
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Chat error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "message": f"错误: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
+
+
     def _simulate_request(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
         模拟 AI 请求（用于测试或当 API 未配置时）
