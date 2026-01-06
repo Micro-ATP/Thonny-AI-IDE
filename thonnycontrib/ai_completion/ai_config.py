@@ -210,7 +210,7 @@ class AICompletionConfig:
             "provider": ai_service.get("provider", "openai_compatible"),
             "api_key": api_settings.get("api_key") or ai_service.get("api_key", ""),
             "endpoint": api_settings.get("endpoint") or ai_service.get("endpoint", 
-                       "https://api.microatp.com/v1/chat/completions"),
+                       "https://demo.demo.com/v1/"),
             "model": api_settings.get("model") or ai_service.get("model", "deepseek-chat"),
             "timeout": ai_service.get("timeout", 30),
             "max_tokens": ai_service.get("max_tokens", 500)
