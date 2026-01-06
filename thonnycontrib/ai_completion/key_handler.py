@@ -30,7 +30,7 @@ class AIKeyHandler:
         widget.bind("<Escape>", self._on_reject_suggestion, add=True)
         widget.bind("<Control-g>", self._on_reject_suggestion, add=True)
 
-        print("⌨️ 快捷键绑定: Enter/Tab接受, Esc拒绝")
+        print("⌨️ Shortcuts: Enter/Tab to accept, Esc to decline")
 
     def show_suggestion(self, suggestion, analysis_result=None):
         """
@@ -43,7 +43,7 @@ class AIKeyHandler:
         print("💡 Showing AI suggestion...")
 
         if not suggestion or suggestion.isspace():
-            print("⚠️ 空建议，不显示")
+            print("⚠️ empty suggestion, do not express")
             return
 
         self.current_suggestion = suggestion
@@ -91,7 +91,7 @@ class AIKeyHandler:
             try:
                 self.ai_client.on_suggestion_accepted(self.current_suggestion)
             except Exception as e:
-                print(f"调用on_suggestion_accepted时出错: {e}")
+                print(f"error in calling on_suggestion_accepted: {e}")
 
         # 重置状态
         self._reset_suggestion()
@@ -115,14 +115,14 @@ class AIKeyHandler:
                     end = self.text_widget.index("sel.last")
                     self.text_widget.delete(start, end)
             except Exception as e:
-                print(f"删除建议文本时出错: {e}")
+                print(f"error in deleting suggestion texts: {e}")
 
         # 调用AI客户端的回调（如果有）
         if self.current_suggestion and hasattr(self.ai_client, 'on_suggestion_rejected'):
             try:
                 self.ai_client.on_suggestion_rejected(self.current_suggestion)
             except Exception as e:
-                print(f"调用on_suggestion_rejected时出错: {e}")
+                print(f"error in calling on_suggestion_rejected: {e}")
 
         # 移除标签
         self.text_widget.tag_remove("ai_suggestion", "1.0", "end")
