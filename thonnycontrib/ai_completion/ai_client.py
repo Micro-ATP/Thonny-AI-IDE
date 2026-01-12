@@ -760,6 +760,161 @@ Analyze the context and suggest the most likely completion. Be proactive but sma
                 
                 temperature = 0.4  # 提高创造性，更主动地猜测（类似 Copilot）
                 max_tokens = 400   # 增加 token 数以支持更长的补全和多行建议
+            
+            elif mode == "fix":
+                # 修复模式：修改/修复选中的代码
+                selected_code = context.get("selection", "")
+                suffix = context.get("suffix", "")
+                boundary_before = context.get("boundary_before", "")  # 选中区域前的边界上下文
+                boundary_after = context.get("boundary_after", "")    # 选中区域后的边界上下文
+                
+                system_prompt = """You are an expert Python code fixer.
+
+Your mission: Fix or improve the SELECTED code ONLY.
+
+CRITICAL RULES - READ VERY CAREFULLY:
+1. Output ONLY the replacement for the selected portion
+2. Do NOT include any text from BEFORE the selection (boundary_before)
+3. Do NOT include any text from AFTER the selection (boundary_after)
+4. The output will REPLACE the selected text exactly
+5. Do NOT output markdown, backticks, or explanations
+
+BOUNDARY CONTEXT EXPLANATION:
+- I will show you what comes BEFORE and AFTER the selection
+- This helps you understand context, but DO NOT REPEAT this in your output
+- Example: If boundary_before="re" and selected="turn", output only "turn" (fixed), not "return"
+
+WHAT TO FIX:
+1. Syntax errors (missing colons, brackets, quotes)
+2. Typos in keywords/names
+3. Wrong operators (= vs ==)
+4. Incomplete statements
+5. Logical errors
+
+EXAMPLES:
+
+Example 1:
+boundary_before: "re"
+selected: "trun"
+boundary_after: " x"
+Output: "turn"  (NOT "return" - boundary_before already has "re")
+
+Example 2:
+boundary_before: ""
+selected: "retrun"
+boundary_after: " x"
+Output: "return"  (full word because boundary_before is empty)
+
+Example 3:
+boundary_before: "if x "
+selected: "= 5"
+boundary_after: ":"
+Output: "== 5"  (fix = to ==, boundary already has "if x ")
+
+Example 4:
+boundary_before: "print("
+selected: "Hello"
+boundary_after: ""
+Output: "Hello")"  (add closing quote and paren)
+
+Remember: Output ONLY what should replace the selected text!"""
+                
+                user_prompt = f"""Fix the selected Python code.
+
+=== IMMEDIATE BOUNDARY CONTEXT ===
+Text BEFORE selection: "{boundary_before}"
+SELECTED TEXT TO FIX: "{selected_code}"
+Text AFTER selection: "{boundary_after}"
+
+=== LARGER CONTEXT (for understanding) ===
+Code before:
+```python
+{prefix[-500:] if len(prefix) > 500 else prefix}
+```
+
+Code after:
+```python
+{suffix[:300] if len(suffix) > 300 else suffix}
+```
+
+=== YOUR TASK ===
+Output ONLY the fixed version of "{selected_code}"
+Do NOT include "{boundary_before}" or "{boundary_after}" in your output.
+The boundary text is already in the file - you're only replacing the selected portion.
+
+What issues do you see in the selected text?
+- Typos?
+- Missing characters?
+- Wrong operators?
+- Syntax errors?
+
+Output the fixed replacement:"""
+                
+                temperature = 0.1  # 非常低的温度，最精确的修复
+                max_tokens = 300
+            
+            elif mode == "analyze_fix":
+                # 分析修复模式：分析整段代码并修复所有问题
+                code_to_analyze = context.get("selection", "") or context.get("text", "")
+                
+                system_prompt = """You are an expert Python code reviewer and fixer.
+
+Your mission: Analyze the given Python code, find ALL errors and issues, and output the COMPLETE fixed version.
+
+WHAT TO LOOK FOR:
+1. Syntax errors (missing colons, brackets, quotes, wrong indentation)
+2. Type errors (e.g., using string where int is expected)
+3. Logic errors (wrong operators, off-by-one errors, incorrect calculations)
+4. Common mistakes (e.g., range(1, n) should be range(1, n+1) for sum 1 to n)
+5. Missing conversions (e.g., input() returns string, need int() for numbers)
+6. Variable scope issues
+7. Undefined variables or functions
+
+OUTPUT RULES:
+1. Output the COMPLETE fixed code - not just the changes
+2. Keep ALL comments from original code
+3. Add brief inline comments (# Fixed: ...) only where you made changes
+4. Maintain the original code structure and style
+5. Do NOT output explanations before or after the code
+6. Do NOT use markdown code blocks
+
+EXAMPLE:
+Input code with errors:
+```
+n = input("Enter number: ")
+total = 0
+for i in range(1, n):
+    total = i
+print(total)
+```
+
+Output (fixed code):
+n = input("Enter number: ")
+n = int(n)  # Fixed: convert string to int
+total = 0
+for i in range(1, n + 1):  # Fixed: range should include n
+    total += i  # Fixed: should be += not =
+print(total)
+"""
+                
+                user_prompt = f"""Analyze and fix this Python code. Output the COMPLETE fixed version.
+
+CODE TO ANALYZE AND FIX:
+{code_to_analyze}
+
+Instructions:
+1. Find ALL errors (syntax, logic, type errors, etc.)
+2. Fix each error
+3. Add brief "# Fixed: ..." comments where you made changes
+4. Output the COMPLETE fixed code (not just the parts you changed)
+5. Keep all original comments
+6. Do NOT add explanations before or after the code
+
+Output the fixed code:"""
+                
+                temperature = 0.2
+                max_tokens = 2000  # 允许更长的输出，因为要输出完整代码
+            
             else:
                 system_prompt = "You are a helpful code analysis assistant."
                 user_prompt = self._build_prompt(context)
@@ -803,8 +958,9 @@ Analyze the context and suggest the most likely completion. Be proactive but sma
             if not ai_response:
                 raise ValueError("Empty response from AI")
             
-            # 清理响应
-            ai_response = self._clean_completion(ai_response, mode)
+            # 清理响应，传入 suffix 用于重叠检测
+            suffix = context.get("suffix", "")
+            ai_response = self._clean_completion(ai_response, mode, prefix, suffix)
             
             logger.info(f"✅ AI response: {ai_response[:50]}...")
             
@@ -843,10 +999,16 @@ Analyze the context and suggest the most likely completion. Be proactive but sma
                 "timestamp": datetime.now().isoformat()
             }
     
-    def _clean_completion(self, response: str, mode: str) -> str:
+    def _clean_completion(self, response: str, mode: str, prefix: str = "", suffix: str = "") -> str:
         """
         智能清理 AI 补全响应
         移除不需要的格式，保留纯代码，避免重复定义
+        
+        Args:
+            response: AI 返回的原始响应
+            mode: 请求模式 (completion/analysis)
+            prefix: 光标前的代码（用于检测与已有代码的重叠）
+            suffix: 光标后的代码（用于检测与后续代码的重叠）
         """
         if mode != "completion":
             return response
@@ -1112,7 +1274,85 @@ Analyze the context and suggest the most likely completion. Be proactive but sma
                         result = lines[0]
                         logger.debug(f"Multiple functions after partial completion, keeping only first line: {result}")
         
-        return result.rstrip() if result else text.strip()
+        # 最终结果
+        final_result = result.rstrip() if result else text.strip()
+        
+        # Bug 3 修复：检测与 prefix 和 suffix 的重叠
+        if final_result:
+            final_result = self._remove_code_overlap(final_result, prefix, suffix)
+        
+        return final_result
+    
+    def _remove_code_overlap(self, suggestion: str, prefix: str, suffix: str) -> str:
+        """
+        检测并移除补全建议与现有代码的重叠部分
+        
+        Args:
+            suggestion: 清理后的建议
+            prefix: 光标前的代码
+            suffix: 光标后的代码
+            
+        Returns:
+            移除重叠后的建议
+        """
+        if not suggestion:
+            return suggestion
+        
+        original_suggestion = suggestion
+        
+        # 1. 检测与 prefix 末尾的重叠（AI 可能重复了光标前的代码）
+        if prefix:
+            prefix_lines = prefix.split('\n')
+            suggestion_lines = suggestion.split('\n')
+            
+            # 检查建议的前几行是否与 prefix 的最后几行重复
+            for overlap_size in range(min(5, len(suggestion_lines), len(prefix_lines)), 0, -1):
+                prefix_end = prefix_lines[-overlap_size:]
+                suggestion_start = suggestion_lines[:overlap_size]
+                
+                # 比较（忽略前后空格）
+                if all(p.strip() == s.strip() for p, s in zip(prefix_end, suggestion_start) if p.strip() or s.strip()):
+                    # 找到重叠，移除建议开头的重复部分
+                    suggestion = '\n'.join(suggestion_lines[overlap_size:])
+                    logger.debug(f"Removed {overlap_size} overlapping lines from start of suggestion")
+                    break
+        
+        # 2. 检测与 suffix 开头的重叠（AI 可能重复了光标后的代码）
+        if suffix and suggestion:
+            suffix_clean = suffix.lstrip()
+            if suffix_clean:
+                suffix_lines = suffix_clean.split('\n')
+                suggestion_lines = suggestion.split('\n')
+                
+                # 检查建议的最后几行是否与 suffix 的前几行重复
+                for overlap_size in range(min(5, len(suggestion_lines), len(suffix_lines)), 0, -1):
+                    suggestion_end = suggestion_lines[-overlap_size:]
+                    suffix_start = suffix_lines[:overlap_size]
+                    
+                    # 比较（忽略前后空格）
+                    if all(se.strip() == ss.strip() for se, ss in zip(suggestion_end, suffix_start) if se.strip() or ss.strip()):
+                        # 找到重叠，移除建议末尾的重复部分
+                        suggestion = '\n'.join(suggestion_lines[:-overlap_size])
+                        logger.debug(f"Removed {overlap_size} overlapping lines from end of suggestion")
+                        break
+                
+                # 额外检查：建议是否包含 suffix 中的代码片段
+                first_suffix_line = suffix_lines[0].strip() if suffix_lines else ""
+                if first_suffix_line and len(first_suffix_line) > 3:
+                    suggestion_lines = suggestion.split('\n')
+                    for i, line in enumerate(suggestion_lines):
+                        if line.strip() == first_suffix_line:
+                            # 建议中包含了 suffix 的第一行，截断
+                            suggestion = '\n'.join(suggestion_lines[:i])
+                            logger.debug(f"Truncated suggestion at line {i} (matched suffix)")
+                            break
+        
+        # 如果处理后建议变空了，返回原始建议（避免过度截断）
+        if not suggestion.strip() and original_suggestion.strip():
+            logger.warning("Suggestion became empty after overlap removal, keeping original")
+            return original_suggestion
+        
+        return suggestion
 
     def _build_prompt(self, context: Dict[str, Any]) -> str:
         """
