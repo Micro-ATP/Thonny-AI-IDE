@@ -192,7 +192,7 @@ class AskAIDialog:
         self.chat_display.tag_configure("system", foreground="#9E9E9E", font=("Arial", 9, "italic"))
         self.chat_display.tag_configure("time", foreground="#757575", font=("Arial", 8))
 
-        self._append_message("system", "欢迎使用 AI 助手！你可以问我任何问题。\n提示：按 Enter 发送，Shift+Enter 换行\n")
+        self._append_message("system", "welcome using AI assistant！Ask me every thing.\nPrompt：Enter to send，Shift+Enter to start a new line\n")
 
         # ========== 输入区域 ==========
         input_frame = ttk.Frame(main_frame)
@@ -367,10 +367,10 @@ class AskAIDialog:
                 self.status_label.config(text="✅ 回答完成")
                 self.last_response = response
             else:
-                self._append_message("error", "AI 返回了空响应")
-                self.status_label.config(text="⚠️ 空响应")
+                self._append_message("error", "AI return empty response")
+                self.status_label.config(text="⚠️ empty response")
         else:
-            error_msg = result.get("message", "未知错误")
+            error_msg = result.get("message", "unknown error")
             self._append_message("error", error_msg)
             self.status_label.config(text=f"❌ {error_msg[:30]}...")
 
@@ -378,12 +378,12 @@ class AskAIDialog:
         """处理错误"""
         self.send_btn.config(state=tk.NORMAL)
         self._append_message("error", error)
-        self.status_label.config(text="❌ 请求失败")
+        self.status_label.config(text="❌ request failure")
 
     def _toggle_speak(self):
         """切换语音朗读"""
         if not TTS_AVAILABLE:
-            self.status_label.config(text="⚠️ TTS 不可用，请安装 pyttsx3")
+            self.status_label.config(text="⚠️ TTS is unaccessible，please deploy pyttsx3")
             return
 
         if self.tts.speaking:
@@ -394,36 +394,36 @@ class AskAIDialog:
     def _start_speaking(self):
         """开始朗读最后一条 AI 回复"""
         if not self.last_response:
-            self.status_label.config(text="⚠️ 没有可朗读的内容")
+            self.status_label.config(text="⚠️ no content to read")
             return
 
-        self.speak_btn.config(text="⏹ 停止")
-        self.status_label.config(text="🔊 正在朗读...")
+        self.speak_btn.config(text="⏹ pause")
+        self.status_label.config(text="🔊 reading...")
 
         def on_speak_done(success, error):
             """朗读完成回调（在主线程执行）"""
 
             def update_ui():
-                self.speak_btn.config(text="🔊 朗读")
+                self.speak_btn.config(text="🔊 read")
                 if success:
-                    self.status_label.config(text="✅ 朗读完成")
+                    self.status_label.config(text="✅ reading completed")
                 elif error:
-                    self.status_label.config(text=f"❌ 朗读失败: {error[:20]}")
+                    self.status_label.config(text=f"❌ reading failure: {error[:20]}")
                 else:
-                    self.status_label.config(text="⏹ 已停止")
+                    self.status_label.config(text="⏹ paused")
 
             self.window.after(0, update_ui)
 
         # 使用 TTS 管理器朗读
         if not self.tts.speak(self.last_response, on_speak_done):
-            self.speak_btn.config(text="🔊 朗读")
-            self.status_label.config(text="⚠️ 无法启动朗读")
+            self.speak_btn.config(text="🔊 read")
+            self.status_label.config(text="⚠️ error in starting reading")
 
     def _stop_speaking(self):
         """停止朗读"""
         self.tts.stop()
-        self.speak_btn.config(text="🔊 朗读")
-        self.status_label.config(text="⏹ 已停止")
+        self.speak_btn.config(text="🔊 read")
+        self.status_label.config(text="⏹ ended")
 
     def _clear_chat(self):
         """清空对话"""
@@ -432,8 +432,8 @@ class AskAIDialog:
         self.chat_display.config(state=tk.DISABLED)
         self.conversation_history.clear()
         self.last_response = ""
-        self._append_message("system", "对话已清空，开始新的对话吧！\n")
-        self.status_label.config(text="🗑 已清空")
+        self._append_message("system", "conversation emptied，start a new conversation！\n")
+        self.status_label.config(text="🗑 emptied")
 
     def _on_close(self):
         """关闭窗口"""
@@ -452,10 +452,10 @@ def open_ask_ai_dialog():
 
     except ImportError as e:
         from tkinter import messagebox
-        messagebox.showerror("错误", f"无法加载 AI 客户端模块:\n{e}")
+        messagebox.showerror("error", f"unable to deploy AI customer module:\n{e}")
     except Exception as e:
         from tkinter import messagebox
-        messagebox.showerror("错误", f"打开对话框失败:\n{e}")
+        messagebox.showerror("error", f"open a new conversation:\n{e}")
 
 
 if __name__ == "__main__":
@@ -469,7 +469,7 @@ if __name__ == "__main__":
             return {
                 "success": True,
                 "data": {
-                    "raw_analysis": f"你好！你问的是：{context.get('message', '')}\n\n这是一个测试回复。"
+                    "raw_analysis": f"hello！you are asking：{context.get('message', '')}\n\nthis is a testing response。"
                 }
             }
 

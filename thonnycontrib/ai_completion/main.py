@@ -531,7 +531,7 @@ def _create_simple_ask_dialog():
             return "break"
 
     input_text.bind("<Return>", on_enter)
-    append_message("ai", "你好！我是 AI 助手，有什么可以帮你的吗？")
+    append_message("ai", "Anything I can do to help you？")
 
 
 # ==========  添加结束 ==========

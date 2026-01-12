@@ -203,15 +203,15 @@ class AIClient:
         except requests.exceptions.Timeout:
             return {
                 "success": False,
-                "message": "请求超时，请稍后重试",
+                "message": "response generating out of time，please try again later",
                 "timestamp": datetime.now().isoformat()
             }
         except requests.exceptions.RequestException as e:
             error_msg = str(e)
             if "401" in error_msg:
-                error_msg = "API 密钥无效，请检查设置"
+                error_msg = "API Key is invalid，please check settings"
             elif "429" in error_msg:
-                error_msg = "请求过于频繁，请稍后重试"
+                error_msg = "Too frequent request，please retry later"
             return {
                 "success": False,
                 "message": f"网络错误: {error_msg}",
