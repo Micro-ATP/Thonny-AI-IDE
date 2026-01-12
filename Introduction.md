@@ -33,9 +33,9 @@ Group GitHub: https://github.coventry.ac.uk/luy86
 My blog: http://microatp.com
  (currently undergoing ICP registration, temporarily inaccessible)
  
-# 🤖 AI Code Completion Plugin for Thonny（中英文对照 + 完整说明）
+# 🤖 AI Code Completion Plugin for Thonny
 
-## 一、英文版本（可直接作为 GitHub README.md）
+## Basic Information
 **GitHub Copilot-Style AI Code Completion Assistant**
 
 [![Version](https://img.shields.io/badge/version-2.0.0--copilot-blue.svg)](https://github.com/your-repo)
