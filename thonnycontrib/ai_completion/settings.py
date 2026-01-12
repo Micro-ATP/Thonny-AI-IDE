@@ -447,6 +447,73 @@ def open_settings_dialog():
                 logger.error(error_msg)
                 messagebox.showerror("Error", error_msg)
 
+        def test_connection():
+            """Test API connection"""
+            api_key = api_key_entry.get().strip()
+            endpoint = endpoint_entry.get().strip()
+            model = model_entry.get().strip()
+
+            if not api_key:
+                messagebox.showwarning("Input Required", "Please enter API Key first")
+                api_key_entry.focus_set()
+                return
+
+            if not endpoint:
+                messagebox.showwarning("Input Required", "Please enter API Endpoint first")
+                endpoint_entry.focus_set()
+                return
+
+            # Show testing status
+            test_btn.config(state=tk.DISABLED, text="⏳ Testing...")
+            dialog.update()
+
+            def do_test():
+                try:
+                    from .ai_client import AIClient
+                    client = AIClient()
+                    result = client.test_connection(api_key, endpoint, model)
+
+                    # Show result in main thread
+                    def show_result():
+                        test_btn.config(state=tk.NORMAL, text="🔗 Test Connection")
+                        if result.get("success"):
+                            messagebox.showinfo(
+                                "Connection Successful",
+                                f"{result.get('message')}\n\n"
+                                f"Endpoint: {endpoint}\n"
+                                f"Model: {model}"
+                            )
+                        else:
+                            messagebox.showerror(
+                                "Connection Failed",
+                                f"{result.get('message')}\n\n"
+                                f"Please check:\n"
+                                f"1. API Key is correct\n"
+                                f"2. Endpoint URL is correct\n"
+                                f"3. Network connection is available"
+                            )
+
+                    dialog.after(0, show_result)
+
+                except Exception as e:
+                    def show_error():
+                        test_btn.config(state=tk.NORMAL, text="🔗 Test Connection")
+                        messagebox.showerror("Error", f"Test failed:\n{e}")
+
+                    dialog.after(0, show_error)
+
+            # Run test in background thread to avoid blocking UI
+            import threading
+            threading.Thread(target=do_test, daemon=True).start()
+
+        # Test Connection button (add before Save button)
+        test_btn = ttk.Button(
+            button_frame,
+            text="🔗 Test Connection",
+            command=test_connection,
+            width=18
+        )
+        test_btn.pack(side=tk.LEFT, padx=5)
         # Save button
         save_btn = ttk.Button(
             button_frame,

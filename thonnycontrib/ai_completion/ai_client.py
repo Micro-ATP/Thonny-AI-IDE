@@ -225,6 +225,132 @@ class AIClient:
                 "timestamp": datetime.now().isoformat()
             }
 
+    def test_connection(self, api_key: str = None, endpoint: str = None, model: str = None) -> dict:
+        """
+        Test API connection
+
+        Args:
+            api_key: Optional API key for testing
+            endpoint: Optional endpoint URL for testing
+            model: Optional model name for testing
+
+        Returns:
+            dict: {
+                "success": bool,
+                "message": str,
+                "latency_ms": int (if successful)
+            }
+        """
+        import requests
+        import time
+
+        # Use provided parameters or current config
+        test_key = api_key or self.api_key
+        test_endpoint = endpoint or self.endpoint
+        test_model = model or self.model
+
+        # Check required parameters
+        if not test_key:
+            return {
+                "success": False,
+                "message": "API Key is not configured"
+            }
+
+        if not test_endpoint:
+            return {
+                "success": False,
+                "message": "API Endpoint is not configured"
+            }
+
+        try:
+            # Build request URL
+            url = test_endpoint
+            if not url.endswith('/chat/completions'):
+                url = url.rstrip('/') + '/chat/completions'
+
+            # Build minimal test request
+            payload = {
+                "model": test_model,
+                "messages": [
+                    {"role": "user", "content": "Hi"}
+                ],
+                "max_tokens": 5,
+                "temperature": 0
+            }
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {test_key}"
+            }
+
+            logger.info(f"Testing connection to {url}")
+
+            # Record start time
+            start_time = time.time()
+
+            # Send request with short timeout
+            response = requests.post(url, headers=headers, json=payload, timeout=15)
+
+            # Calculate latency
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            # Check response
+            if response.status_code == 200:
+                result = response.json()
+                if "choices" in result:
+                    return {
+                        "success": True,
+                        "message": f"Connection successful! Latency: {latency_ms}ms",
+                        "latency_ms": latency_ms,
+                        "model": test_model
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": f"Unexpected response format: {result}"
+                    }
+            elif response.status_code == 401:
+                return {
+                    "success": False,
+                    "message": "API Key is invalid or expired"
+                }
+            elif response.status_code == 403:
+                return {
+                    "success": False,
+                    "message": "API Key has insufficient permissions"
+                }
+            elif response.status_code == 404:
+                return {
+                    "success": False,
+                    "message": f"API endpoint not found: {url}"
+                }
+            elif response.status_code == 429:
+                return {
+                    "success": False,
+                    "message": "Too many requests, please try again later"
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"HTTP Error {response.status_code}: {response.text[:200]}"
+                }
+
+        except requests.exceptions.Timeout:
+            return {
+                "success": False,
+                "message": "Connection timeout (15s), please check network or endpoint URL"
+            }
+        except requests.exceptions.ConnectionError as e:
+            return {
+                "success": False,
+                "message": f"Cannot connect to server, please check network or endpoint URL\n{str(e)[:100]}"
+            }
+        except Exception as e:
+            logger.error(f"Connection test error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "message": f"Test failed: {str(e)}"
+            }
 
     def _simulate_request(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
