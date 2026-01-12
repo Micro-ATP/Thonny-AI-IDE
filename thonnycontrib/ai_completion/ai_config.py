@@ -41,7 +41,8 @@ class AICompletionConfig:
             "mode": "inline",  # inline 或 popup
             "debounce_ms": 500,  # 防抖延迟
             "min_trigger_interval_ms": 1000,  # 最小触发间隔
-            "preserve_indent": True  # 保持缩进
+            "preserve_indent": True,  # 保持缩进
+            "continuous_completion": True  # 连续补全：接受后自动触发下一个
         },
         "ai_service": {
             "enabled": True,

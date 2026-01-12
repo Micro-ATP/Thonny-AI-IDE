@@ -335,7 +335,7 @@ class GhostText:
             return False
     
     def _accept(self):
-        """接受补全：保留文本，移除标签，光标移到末尾"""
+        """接受补全：保留文本，移除标签，光标移到末尾，并可选地触发连续补全"""
         if not self.active:
             return
         
@@ -350,17 +350,23 @@ class GhostText:
             self.widget.mark_set("insert", end)
             
             # 根据模式显示不同的消息
-            if getattr(self, '_replacement_mode', False):
+            is_replacement = getattr(self, '_replacement_mode', False)
+            if is_replacement:
                 logger.info("Replacement accepted")
                 get_workbench().set_status_message("✅ Fix Applied")
             else:
                 logger.info("Ghost text accepted")
-                get_workbench().set_status_message("✅ Completion Completed")
+                get_workbench().set_status_message("✅ Completion Accepted - Tab for more")
             
-            self.widget.after(1500, lambda: get_workbench().set_status_message(""))
+            self.widget.after(2000, lambda: get_workbench().set_status_message(""))
+            
+            # 保存 widget 引用，因为后面要重置状态
+            widget_ref = self.widget
             
         except Exception as e:
             logger.error(f"Accept error: {e}")
+            widget_ref = None
+            is_replacement = True  # 出错时不触发连续补全
         
         # 重置所有状态
         self.active = False
@@ -368,6 +374,42 @@ class GhostText:
         self._replacement_mode = False
         self._original_text = ""
         self._reset_global_state()
+        
+        # 连续补全：非替换模式下，短暂延迟后自动触发下一次补全
+        if widget_ref and not is_replacement:
+            # 检查是否启用连续补全（默认启用）
+            continuous_enabled = True
+            try:
+                if HAS_CONFIG:
+                    config = AIConfig()
+                    # 尝试从 completion 配置组获取
+                    completion_settings = config.get("completion", {})
+                    if isinstance(completion_settings, dict):
+                        continuous_enabled = completion_settings.get("continuous_completion", True)
+                    else:
+                        continuous_enabled = config.get("continuous_completion", True)
+            except:
+                pass
+            
+            if continuous_enabled:
+                def trigger_next_completion():
+                    try:
+                        # 检查光标是否仍在代码中（用户可能已经移动了光标）
+                        cursor_pos = widget_ref.index("insert")
+                        line, col = map(int, cursor_pos.split('.'))
+                        
+                        # 获取当前行内容
+                        current_line = widget_ref.get(f"{line}.0", f"{line}.end")
+                        
+                        # 如果光标在行尾，自动触发下一次补全
+                        if col >= len(current_line.rstrip()):
+                            logger.debug("Triggering continuous completion")
+                            do_completion(widget_ref, manual=False, continuous=True)
+                    except Exception as e:
+                        logger.debug(f"Continuous completion skipped: {e}")
+                
+                # 延迟 300ms 后触发，给用户反应时间
+                widget_ref.after(300, trigger_next_completion)
     
     def _clear(self):
         """清除补全：删除 ghost 文本，如果是替换模式则恢复原始文本"""
@@ -675,8 +717,15 @@ def _should_trigger(widget) -> bool:
         return False
 
 
-def do_completion(widget, manual=False):
-    """执行补全请求"""
+def do_completion(widget, manual=False, continuous=False):
+    """
+    执行补全请求
+    
+    Args:
+        widget: Text widget
+        manual: 是否手动触发
+        continuous: 是否为连续补全（接受上一个补全后自动触发）
+    """
     global _request_state, _last_request_id, _current_suffix
     
     with _request_lock:
