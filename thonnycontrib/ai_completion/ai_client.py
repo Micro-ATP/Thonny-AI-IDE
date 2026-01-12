@@ -119,7 +119,7 @@ class AIClient:
         if not message:
             return {
                 "success": False,
-                "message": "消息不能为空",
+                "message": "Message cannot be empty",
                 "timestamp": datetime.now().isoformat()
             }
 
@@ -127,7 +127,7 @@ class AIClient:
         if not self.api_key:
             return {
                 "success": False,
-                "message": "API 密钥未配置，请在 Tools → AI Assistant Settings 中设置",
+                "message": "API key is not configured, please set it in Tools → AI Assistant Settings",
                 "timestamp": datetime.now().isoformat()
             }
 
@@ -141,13 +141,13 @@ class AIClient:
             messages = [
                 {
                     "role": "system",
-                    "content": """你是一个友好、博学的 AI 助手。你可以：
-1. 回答各种问题（编程、科学、生活、学习等）
-2. 帮助解释概念和提供建议
-3. 进行友好的对话
-4. 帮助解决问题和提供思路
+                    "content": """You are a friendly and knowledgeable AI assistant. You can: 
+1. Answer a variety of questions (programming, science, daily life, learning, etc.) 
+2. Help explain concepts and provide advice 
+3. Engage in friendly conversations 
+4. Assist in solving problems and offering ideas
 
-请用英文回答，回答要简洁清晰、有帮助。如果不确定，请诚实说明。"""
+Please respond in English, keeping your answers concise, clear, and helpful. If unsure, be honest."""
                  }
             ]
 
@@ -214,14 +214,14 @@ class AIClient:
                 error_msg = "Too frequent request，please retry later"
             return {
                 "success": False,
-                "message": f"网络错误: {error_msg}",
+                "message": f"Network Error: {error_msg}",
                 "timestamp": datetime.now().isoformat()
             }
         except Exception as e:
             logger.error(f"Chat error: {e}", exc_info=True)
             return {
                 "success": False,
-                "message": f"错误: {str(e)}",
+                "message": f"Error: {str(e)}",
                 "timestamp": datetime.now().isoformat()
             }
 
@@ -375,26 +375,25 @@ class AIClient:
             analysis_text = self._generate_mock_completion(prefix, language)
         else:
             # 分析模式：生成分析报告
-            analysis_text = f"""代码分析报告（模拟模式）
+            analysis_text = f"""Code Analysis Report (Simulation Mode)
 
-文件: {filename}
-语言: {language}
-代码长度: {len(code_text)} 字符
-选中代码长度: {len(selected_code)} 字符
+File: {filename}
+Language: {language}
+Code Length: {len(code_text)} characters
+Selected Code Length: {len(selected_code)} characters
 
-分析结果:
+Analysis Result:
 ----------
-这是一个模拟的 AI 代码分析结果。
+This is a simulated AI code analysis result.
 
-当前代码包含 {len(code_text.splitlines())} 行代码。
+The current code contains {len(code_text.splitlines())} lines of code.
 
-建议(test):
-1. 这是一个占位符分析结果
-2. 请配置真实的 API 密钥以获取实际分析
-3. 在设置中配置 API Key、Endpoint 和 Model
+Suggestions (test):
+1. This is a placeholder analysis result
+2. Please configure a real API key to get an actual analysis
+3. Configure API Key, Endpoint, and Model in the settings
 
-注意: 当前使用的是模拟模式，不会调用真实的 AI 服务。
-"""
+Note: The current mode is simulation and will not call real AI services."""
         
         metadata = {
             "filename": filename,
@@ -549,7 +548,7 @@ class AIClient:
             logger.error("API key not configured. Please set up in Settings.")
             return {
                 "success": False,
-                "message": "API 密钥未配置，请在设置中配置 API Key",
+                "message": "API key is not configured. Please set up the API key in the settings.",
                 "timestamp": datetime.now().isoformat()
             }
         
@@ -1400,11 +1399,11 @@ The completion should:
 Respond with only the code completion, nothing else."""
         else:
             # 分析模式
-            prompt = f"""请分析以下 {language} 代码：
+            prompt = f"""Please Analyze this part of{language} code：
 
-文件名: {filename}
+File name: {filename}
 
-代码:
+Code:
 ```{language}
 {code_text}
 ```"""
@@ -1412,7 +1411,7 @@ Respond with only the code completion, nothing else."""
             if selected_code:
                 prompt += f"""
 
-选中的代码片段:
+Selected part of code:
 ```{language}
 {selected_code}
 ```"""

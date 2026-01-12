@@ -916,17 +916,17 @@ def _handle_error(error_msg: str, widget):
     show_settings_hint = False
     
     if "API" in error_msg and ("密钥" in error_msg or "key" in error_msg.lower() or "401" in error_msg):
-        error_display = "❌ API密钥无效或未配置"
+        error_display = "❌ API key is invalid or not configured"
         show_settings_hint = True
     elif "endpoint" in error_msg.lower() or "连接" in error_msg or "connect" in error_msg.lower():
-        error_display = "❌ API端点连接失败"
+        error_display = "❌ Failed to connect to the API endpoint"
         show_settings_hint = True
     elif "timeout" in error_msg.lower() or "超时" in error_msg:
-        error_display = "❌ 请求超时，请稍后重试"
+        error_display = "❌ Request timed out, please try again later"
     elif "429" in error_msg:
-        error_display = "❌ 请求过于频繁，请稍后重试"
+        error_display = "❌ Requests are too frequent, please try again later."
     elif "配置" in error_msg or "config" in error_msg.lower():
-        error_display = "❌ API配置错误"
+        error_display = "❌ API configuration error"
         show_settings_hint = True
     else:
         error_display = f"❌ {error_msg[:50]}" if len(error_msg) > 50 else f"❌ {error_msg}"
@@ -942,8 +942,8 @@ def _handle_error(error_msg: str, widget):
             def show_error_dialog():
                 from tkinter import messagebox
                 result = messagebox.askyesno(
-                    "AI 补全错误",
-                    f"{error_display}\n\n请检查 API 配置是否正确。\n\n是否打开设置页面？",
+                    "AI completion error",
+                    f"{error_display}\n\nPlease check if the API configuration is correct.\n\nDo you want to open the settings page?",
                     icon="warning"
                 )
                 if result:
@@ -1014,7 +1014,7 @@ def open_ask_ai_everything(event=None):
             _create_simple_ask_dialog()
     except Exception as e:
         from tkinter.messagebox import showerror
-        showerror("错误", f"无法打开 AI 对话框:\n\n{e}")
+        showerror("Error", f"Can not open AI dialog box:\n\n{e}")
     return "break"
 
 
@@ -1061,7 +1061,7 @@ def _create_simple_ask_dialog():
         elif role == "ai":
             chat_display.insert(tk.END, f"\nAI: {text}\n")
         elif role == "error":
-            chat_display.insert(tk.END, f"\n❌ 错误: {text}\n")
+            chat_display.insert(tk.END, f"\n❌ Error: {text}\n")
         chat_display.config(state=tk.DISABLED)
         chat_display.see(tk.END)
 
@@ -1072,12 +1072,12 @@ def _create_simple_ask_dialog():
 
         input_text.delete("1.0", tk.END)
         append_message("user", message)
-        status_var.set("🤔 AI 正在思考...")
+        status_var.set("🤔 AI is thinking...")
 
         def request_thread():
             try:
                 if not HAS_AI_CLIENT:
-                    dialog.after(0, lambda: append_message("error", "AI 客户端未加载"))
+                    dialog.after(0, lambda: append_message("error", "AI Client not loaded"))
                     return
 
                 client = AIClient()
@@ -1097,20 +1097,20 @@ def _create_simple_ask_dialog():
                 def handle_result():
                     if result.get("success"):
                         response = result.get("data", {}).get("raw_analysis", "")
-                        append_message("ai", response if response else "（无响应）")
-                        status_var.set("✅ 完成")
+                        append_message("ai", response if response else "(No response)")
+                        status_var.set("✅ Finish")
                     else:
-                        append_message("error", result.get("message", "未知错误"))
-                        status_var.set("❌ 失败")
+                        append_message("error", result.get("message", "Unknown error"))
+                        status_var.set("❌ Failed")
 
                 dialog.after(0, handle_result)
             except Exception as e:
                 dialog.after(0, lambda: append_message("error", str(e)))
-                dialog.after(0, lambda: status_var.set("❌ 错误"))
+                dialog.after(0, lambda: status_var.set("❌ Error"))
 
         threading.Thread(target=request_thread, daemon=True).start()
 
-    send_btn = tk.Button(input_frame, text="发送", command=send_message, width=8)
+    send_btn = tk.Button(input_frame, text="send", command=send_message, width=8)
     send_btn.pack(side=tk.RIGHT)
 
     def on_enter(event):
@@ -1136,7 +1136,7 @@ def analyze_and_fix_code(event=None):
         editor = get_workbench().get_editor_notebook().get_current_editor()
         if not editor:
             from tkinter import messagebox
-            messagebox.showwarning("提示", "请先打开一个文件")
+            messagebox.showwarning("Prompt", "Please open a file first.")
             return "break"
         
         widget = editor.get_text_widget()
@@ -1156,14 +1156,14 @@ def analyze_and_fix_code(event=None):
             full_code = widget.get("1.0", "end-1c")
             if not full_code.strip():
                 from tkinter import messagebox
-                messagebox.showinfo("提示", "文件为空，无需分析")
+                messagebox.showinfo("Prompt", "The file is empty, no analysis is needed")
                 return "break"
             _show_fix_dialog(widget, full_code, is_full_file=True)
         
     except Exception as e:
         logger.error(f"Analyze and fix error: {e}")
         from tkinter import messagebox
-        messagebox.showerror("错误", f"分析失败: {e}")
+        messagebox.showerror("Error", f"Analysis failed: {e}")
     
     return "break"
 
@@ -1183,12 +1183,12 @@ def _show_fix_dialog(widget, code_to_fix: str, is_full_file: bool = False):
     main_frame.pack(fill=tk.BOTH, expand=True)
     
     # 标题
-    title_text = "🔧 分析整个文件" if is_full_file else "🔧 分析选中代码"
+    title_text = "🔧 Analyze the entire code file" if is_full_file else "🔧 Analyze the selected part of code"
     title = tk.Label(main_frame, text=title_text, font=("Arial", 14, "bold"))
     title.pack(pady=(0, 10))
     
     # 原始代码显示
-    orig_frame = tk.LabelFrame(main_frame, text="原始代码")
+    orig_frame = tk.LabelFrame(main_frame, text="Original code")
     orig_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
     
     orig_text = scrolledtext.ScrolledText(orig_frame, wrap=tk.WORD, height=8,
@@ -1198,7 +1198,7 @@ def _show_fix_dialog(widget, code_to_fix: str, is_full_file: bool = False):
     orig_text.config(state=tk.DISABLED)
     
     # 修复后代码显示
-    fix_frame = tk.LabelFrame(main_frame, text="AI 修复建议")
+    fix_frame = tk.LabelFrame(main_frame, text="AI modify Suggestions")
     fix_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
     
     fix_text = scrolledtext.ScrolledText(fix_frame, wrap=tk.WORD, height=8,
@@ -1206,7 +1206,7 @@ def _show_fix_dialog(widget, code_to_fix: str, is_full_file: bool = False):
     fix_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
     
     # 状态栏
-    status_var = tk.StringVar(value="点击「分析代码」开始")
+    status_var = tk.StringVar(value="Press「Analyze Code」to start")
     status_label = tk.Label(main_frame, textvariable=status_var, fg="gray")
     status_label.pack(pady=(5, 0))
     
@@ -1216,11 +1216,11 @@ def _show_fix_dialog(widget, code_to_fix: str, is_full_file: bool = False):
     
     def do_analyze():
         """执行分析"""
-        status_var.set("🤖 AI 正在分析...")
+        status_var.set("🤖 AI is thinking...")
         analyze_btn.config(state=tk.DISABLED)
         fix_text.config(state=tk.NORMAL)
         fix_text.delete("1.0", tk.END)
-        fix_text.insert("1.0", "正在分析，请稍候...")
+        fix_text.insert("1.0", "AI is thinking, please wait...")
         fix_text.config(state=tk.DISABLED)
         
         def request_thread():
@@ -1238,7 +1238,7 @@ def _show_fix_dialog(widget, code_to_fix: str, is_full_file: bool = False):
                 }
                 
                 result = client.request(context)
-                
+
                 def handle_result():
                     analyze_btn.config(state=tk.NORMAL)
                     if result.get("success"):
@@ -1247,45 +1247,45 @@ def _show_fix_dialog(widget, code_to_fix: str, is_full_file: bool = False):
                         fix_text.delete("1.0", tk.END)
                         if fixed_code:
                             fix_text.insert("1.0", fixed_code)
-                            status_var.set("✅ 分析完成 - 点击「应用修复」替换代码")
+                            status_var.set("✅ Analysis completed - Click 'Apply Fix' to replace code")
                             apply_btn.config(state=tk.NORMAL)
                         else:
-                            fix_text.insert("1.0", "未检测到需要修复的问题")
-                            status_var.set("✅ 代码看起来没有问题")
+                            fix_text.insert("1.0", "No issues detected that require fixing")
+                            status_var.set("✅ Code appears to be error-free")
                         fix_text.config(state=tk.DISABLED)
                     else:
-                        error_msg = result.get("message", "未知错误")
+                        error_msg = result.get("message", "Unknown error")
                         fix_text.config(state=tk.NORMAL)
                         fix_text.delete("1.0", tk.END)
-                        fix_text.insert("1.0", f"分析失败: {error_msg}")
+                        fix_text.insert("1.0", f"Analysis failed: {error_msg}")
                         fix_text.config(state=tk.DISABLED)
                         status_var.set(f"❌ {error_msg[:30]}...")
-                
+
                 dialog.after(0, handle_result)
-                
+
             except Exception as e:
                 def show_error():
                     analyze_btn.config(state=tk.NORMAL)
                     fix_text.config(state=tk.NORMAL)
                     fix_text.delete("1.0", tk.END)
-                    fix_text.insert("1.0", f"错误: {e}")
+                    fix_text.insert("1.0", f"Error: {e}")
                     fix_text.config(state=tk.DISABLED)
-                    status_var.set("❌ 分析失败")
+                    status_var.set("❌ Analyze failed")
                 dialog.after(0, show_error)
-        
+
         threading.Thread(target=request_thread, daemon=True).start()
-    
+
     def do_apply():
         """应用修复"""
         fix_text.config(state=tk.NORMAL)
         fixed_code = fix_text.get("1.0", "end-1c")
         fix_text.config(state=tk.DISABLED)
-        
-        if not fixed_code or fixed_code.startswith("正在分析") or fixed_code.startswith("分析失败"):
+
+        if not fixed_code or fixed_code.startswith("Analyzing") or fixed_code.startswith("分析失败"):
             from tkinter import messagebox
-            messagebox.showwarning("提示", "没有可用的修复代码")
+            messagebox.showwarning("Prompt", "No fixable code available")
             return
-        
+
         if is_full_file:
             # 替换整个文件
             widget.delete("1.0", "end")
@@ -1300,28 +1300,28 @@ def _show_fix_dialog(widget, code_to_fix: str, is_full_file: bool = False):
             except tk.TclError:
                 # 选中可能已经丢失，插入到光标位置
                 widget.insert("insert", fixed_code)
-        
-        status_var.set("✅ 已应用修复")
+
+        status_var.set("✅ Fix applied successfully")
         dialog.after(1500, dialog.destroy)
-    
-    analyze_btn = tk.Button(btn_frame, text="🔍 分析代码", command=do_analyze, width=15)
+
+    analyze_btn = tk.Button(btn_frame, text="🔍 Analyze Code", command=do_analyze, width=15)
     analyze_btn.pack(side=tk.LEFT, padx=5)
-    
-    apply_btn = tk.Button(btn_frame, text="✅ 应用修复", command=do_apply, width=15, state=tk.DISABLED)
+
+    apply_btn = tk.Button(btn_frame, text="✅ Apply Fix", command=do_apply, width=15, state=tk.DISABLED)
     apply_btn.pack(side=tk.LEFT, padx=5)
-    
-    close_btn = tk.Button(btn_frame, text="关闭", command=dialog.destroy, width=10)
+
+    close_btn = tk.Button(btn_frame, text="Close", command=dialog.destroy, width=10)
     close_btn.pack(side=tk.LEFT, padx=5)
-    
+
     # 绑定快捷键
     dialog.bind('<Escape>', lambda e: dialog.destroy())
-    
+
     # 居中显示
     dialog.update_idletasks()
     x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
     y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
     dialog.geometry(f"+{x}+{y}")
-    
+
     dialog.grab_set()
 
 

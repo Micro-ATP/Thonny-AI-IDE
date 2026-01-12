@@ -47,14 +47,14 @@ class TTSManager:
             callback: 朗读完成后的回调函数
         """
         if not HAS_PYTTSX3:
-            logger.warning("pyttsx3 不可用")
+            logger.warning("pyttsx3 can not be used")
             if callback:
-                callback(False, "TTS 不可用")
+                callback(False, "TTS can not be used")
             return False
 
         with self.lock:
             if self.is_speaking:
-                logger.warning("已经在朗读中")
+                logger.warning("Already reading aloud")
                 return False
             self.is_speaking = True
             self.should_stop = False
@@ -89,7 +89,7 @@ class TTSManager:
 
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"TTS 朗读错误: {e}")
+                logger.error(f"TTS encountered a reading error: {e}")
             finally:
                 with self.lock:
                     self.is_speaking = False
@@ -164,12 +164,12 @@ class AskAIDialog:
         title_label.pack(side=tk.LEFT)
 
         # TTS 状态标签
-        tts_status = "🔊 语音可用" if TTS_AVAILABLE else "🔇 语音不可用 (pip install pyttsx3)"
+        tts_status = "🔊 Voice function is available" if TTS_AVAILABLE else "🔇 Voice function is unavailable (pip install pyttsx3)"
         tts_label = ttk.Label(title_frame, text=tts_status, foreground="gray")
         tts_label.pack(side=tk.RIGHT)
 
         # ========== 对话显示区域 ==========
-        chat_frame = ttk.LabelFrame(main_frame, text="对话", padding="5")
+        chat_frame = ttk.LabelFrame(main_frame, text="Dialogue", padding="5")
         chat_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         self.chat_display = scrolledtext.ScrolledText(
@@ -246,10 +246,10 @@ class AskAIDialog:
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X)
 
-        self.status_label = ttk.Label(status_frame, text="就绪", foreground="gray")
+        self.status_label = ttk.Label(status_frame, text="Ready", foreground="gray")
         self.status_label.pack(side=tk.LEFT)
 
-        close_btn = ttk.Button(status_frame, text="关闭", command=self._on_close)
+        close_btn = ttk.Button(status_frame, text="Close", command=self._on_close)
         close_btn.pack(side=tk.RIGHT)
 
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -287,14 +287,14 @@ class AskAIDialog:
 
         if role == "user":
             self.chat_display.insert(tk.END, f"\n[{timestamp}] ", "time")
-            self.chat_display.insert(tk.END, "你: ", "user")
+            self.chat_display.insert(tk.END, "You: ", "user")
             self.chat_display.insert(tk.END, f"{message}\n", "user_msg")
         elif role == "ai":
             self.chat_display.insert(tk.END, f"\n[{timestamp}] ", "time")
             self.chat_display.insert(tk.END, "AI: ", "ai")
             self.chat_display.insert(tk.END, f"{message}\n", "ai_msg")
         elif role == "error":
-            self.chat_display.insert(tk.END, f"\n❌ 错误: {message}\n", "error")
+            self.chat_display.insert(tk.END, f"\n❌ Error: {message}\n", "error")
         elif role == "system":
             self.chat_display.insert(tk.END, f"{message}\n", "system")
 
@@ -344,14 +344,14 @@ class AskAIDialog:
             self.window.after(0, lambda: self._handle_response(result))
 
         except Exception as e:
-            logger.error(f"AI 请求失败: {e}")
+            logger.error(f"AI Request failed: {e}")
             self.window.after(0, lambda: self._handle_error(str(e)))
 
     def _build_conversation_context(self) -> str:
         """构建对话上下文"""
         context_parts = []
         for msg in self.conversation_history[-6:]:
-            role = "用户" if msg["role"] == "user" else "AI"
+            role = "User" if msg["role"] == "user" else "AI"
             context_parts.append(f"{role}: {msg['content']}")
         return "\n".join(context_parts)
 
@@ -364,7 +364,7 @@ class AskAIDialog:
             if response:
                 self._append_message("ai", response)
                 self.conversation_history.append({"role": "assistant", "content": response})
-                self.status_label.config(text="✅ 回答完成")
+                self.status_label.config(text="✅ Answer completed")
                 self.last_response = response
             else:
                 self._append_message("error", "AI return empty response")
