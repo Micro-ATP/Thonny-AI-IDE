@@ -925,6 +925,15 @@ def _handle_error(error_msg: str, widget):
         error_display = "❌ Request timed out, please try again later"
     elif "429" in error_msg:
         error_display = "❌ Requests are too frequent, please try again later."
+    elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+        error_display = "Network connection failed"
+    elif "refused" in error_msg.lower():
+        error_display = "Connection refused by server"
+    elif "404" in error_msg:
+        error_display = "API endpoint not found (404)"
+        show_settings_hint = True
+    elif "500" in error_msg or "502" in error_msg or "503" in error_msg:
+        error_display = "Server error, please try again later"
     elif "配置" in error_msg or "config" in error_msg.lower():
         error_display = "❌ API configuration error"
         show_settings_hint = True
@@ -937,29 +946,35 @@ def _handle_error(error_msg: str, widget):
         wb.set_status_message(error_display)
         
         # 如果需要引导用户去设置页面
-        if show_settings_hint:
-            # 使用 messagebox 显示更详细的错误信息
-            def show_error_dialog():
-                from tkinter import messagebox
+        def show_error_dialog():
+            from tkinter import messagebox
+
+            if show_settings_hint:
                 result = messagebox.askyesno(
-                    "AI completion error",
-                    f"{error_display}\n\nPlease check if the API configuration is correct.\n\nDo you want to open the settings page?",
-                    icon="warning"
+                    "AI API Connection Failed",
+                    f"Error: {error_display}\n\n"
+                    "The AI code completion service could not be reached.\n\n"
+                    "Please check if the API configuration is correct.\n\n"
+                    "Would you like to open the settings page?",
+                    icon="error"
                 )
                 if result:
-                    # 打开设置对话框
                     try:
                         if HAS_SETTINGS:
                             from .settings import open_settings_dialog
                             open_settings_dialog()
                     except Exception as e:
                         logger.error(f"Failed to open settings: {e}")
-            
-            # 延迟显示对话框，避免阻塞
-            widget.after(100, show_error_dialog)
-        else:
-            # 普通错误，3秒后清除状态栏
-            widget.after(3000, lambda: wb.set_status_message(""))
+            else:
+                messagebox.showerror(
+                    "AI API Connection Failed",
+                    f"Error: {error_display}\n\n"
+                    "The AI code completion service could not be reached.\n\n"
+                    "Please check your network connection and try again."
+                )
+
+        widget.after(100, show_error_dialog)
+        widget.after(3000, lambda: wb.set_status_message(""))
             
     except Exception as e:
         logger.error(f"Error showing error message: {e}")
