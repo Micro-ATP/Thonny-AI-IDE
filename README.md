@@ -17,12 +17,13 @@ _Example: “This project aims to develop a web-based tool for….”_
 ---
 
 ## 👥 Team Members
-- Ting Wang(14553505)
-- Siyuan Xu(14564132)
-- Manshu Li(14564040)
-- Yanxi Lu（14548947）
-- Jin Qiao(14564464)
+- Ting Wang
+- Siyuan Xu
+- Manshu Li
+- Yanxi Lu
+- Jin Qiao
 
 ---
 
 ## 📂 Repository Structure
+
